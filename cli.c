@@ -1,11 +1,18 @@
 /* AmiFritzCLI - Shell-Werkzeug fuer Phase 1 und 2, noch ohne MUI.
  *
- *   AmiFritzCLI [-h host] [-P port] [-u user] [-p pass] <kommando> [arg]
+ *   AmiFritzCLI [-h host] [-P port] [-T port] [-u user] [-p pass]
+ *               <kommando> [arg...]
+ *
+ *   -P  Port fuer login_sid.lua/AHA (80), -T Port fuer TR-064 (49000)
  *
  *   get <pfad>         roher GET, Statuszeile und Kopf ausgeben (Phase 1)
  *   login              anmelden, SID ausgeben, wieder abmelden
  *   list               Steckdosen: AIN, Zustand, Leistung, Name
  *   on|off|toggle <AIN>
+ *   info               Modell, FRITZ!OS-Version, Laufzeit (TR-064)
+ *   wanip              aktuelle Internet-Adresse (TR-064)
+ *   soap <dienst> <aktion>  beliebige TR-064-Aktion ohne Argumente,
+ *                      Antwort roh ausgeben
  *
  * Das Passwort darf auch in der Umgebungsvariable FRITZPASS stehen, damit
  * es nicht in der Shell-History landet. */
@@ -15,17 +22,21 @@
 #include <string.h>
 
 #include "fritz.h"
+#include "tr064.h"
 
 static const char VERSTAG[] = "\0$VER: AmiFritzCLI 0.1 (28.09.2026)";
 
 static void usage(void)
 {
-    printf("Usage: AmiFritzCLI [-h host] [-P port] [-u user] [-p pass] "
-           "<command> [arg]\n"
+    printf("Usage: AmiFritzCLI [-h host] [-P port] [-T tr064port] "
+           "[-u user] [-p pass] <command> [arg...]\n"
            "  get <path>          raw HTTP GET, print status and headers\n"
            "  login               log in, print SID, log out\n"
            "  list                list smart plugs\n"
            "  on|off|toggle <AIN> switch a smart plug\n"
+           "  info                model, FRITZ!OS version, uptime (TR-064)\n"
+           "  wanip               current internet address (TR-064)\n"
+           "  soap <service> <action>  call a TR-064 action, print reply\n"
            "Password may also come from the environment variable "
            "FRITZPASS.\n");
 }
@@ -109,6 +120,66 @@ static int cmd_switch(struct FritzSession *s, const char *what,
     return 0;
 }
 
+static int cmd_tr064(struct Tr064 *t, const char *cmd, const char *a1,
+                     const char *a2)
+{
+    char *resp;
+    int rc;
+
+    if (strcmp(cmd, "wanip") == 0) {
+        char ip[48];
+
+        rc = tr_external_ip(t, ip, sizeof(ip));
+        if (rc != FB_OK) {
+            return report(rc);
+        }
+        printf("%s\n", ip);
+        return 0;
+    }
+
+    if (strcmp(cmd, "info") == 0) {
+        char model[64], ver[32], up[16];
+        long secs;
+
+        rc = tr_call(t, "urn:dslforum-org:service:DeviceInfo:1", "GetInfo",
+                     NULL, &resp);
+        if (rc != FB_OK) {
+            return report(rc);
+        }
+        model[0] = ver[0] = up[0] = '\0';
+        xml_tag(resp, "NewModelName", model, sizeof(model));
+        xml_tag(resp, "NewSoftwareVersion", ver, sizeof(ver));
+        xml_tag(resp, "NewUpTime", up, sizeof(up));
+        free(resp);
+        utf8_to_latin1(model);
+        secs = atol(up);
+        printf("Model:   %s\nFRITZ!OS: %s\nUptime:  %ldd %02ld:%02ld\n",
+               model, ver, secs / 86400, (secs / 3600) % 24,
+               (secs / 60) % 60);
+        return 0;
+    }
+
+    /* soap <dienst> <aktion>; "DeviceInfo:1" wird zum vollen Namen. */
+    {
+        char svc[128];
+
+        if (strncmp(a1, "urn:", 4) == 0) {
+            strncpy(svc, a1, sizeof(svc) - 1);
+            svc[sizeof(svc) - 1] = '\0';
+        } else {
+            sprintf(svc, "urn:dslforum-org:service:%.90s", a1);
+        }
+        rc = tr_call(t, svc, a2, NULL, &resp);
+        if (rc != FB_OK) {
+            return report(rc);
+        }
+        utf8_to_latin1(resp);
+        printf("%s\n", resp);
+        free(resp);
+        return 0;
+    }
+}
+
 int main(int argc, char **argv)
 {
     struct FritzSession s;
@@ -117,7 +188,9 @@ int main(int argc, char **argv)
     const char *pass = getenv("FRITZPASS");
     const char *cmd = NULL;
     const char *arg = NULL;
+    const char *arg2 = NULL;
     int port = -1;
+    int trport = -1;
     int i, rc, ret;
 
     (void)VERSTAG;
@@ -127,6 +200,7 @@ int main(int argc, char **argv)
             switch (argv[i][1]) {
             case 'h': host = argv[++i]; continue;
             case 'P': port = atoi(argv[++i]); continue;
+            case 'T': trport = atoi(argv[++i]); continue;
             case 'u': user = argv[++i]; continue;
             case 'p': pass = argv[++i]; continue;
             }
@@ -135,6 +209,8 @@ int main(int argc, char **argv)
             cmd = argv[i];
         } else if (!arg) {
             arg = argv[i];
+        } else if (!arg2) {
+            arg2 = argv[i];
         } else {
             usage();
             return 5;
@@ -150,6 +226,26 @@ int main(int argc, char **argv)
 
     if (strcmp(cmd, "get") == 0) {
         return cmd_get(host, port > 0 ? port : 80, arg ? arg : "/");
+    }
+
+    if (strcmp(cmd, "info") == 0 || strcmp(cmd, "wanip") == 0
+            || (strcmp(cmd, "soap") == 0 && arg && arg2)) {
+        struct Tr064 t;
+        char tuser[64];
+
+        /* TR-064 braucht den Namen schon fuer die Challenge. */
+        if (!*user) {
+            fb_default_user(host, port > 0 ? port : 80, tuser,
+                            sizeof(tuser));
+            user = tuser;
+        }
+        tr_init(&t, host, user, pass);
+        if (trport > 0) {
+            t.port = trport;
+        }
+        ret = cmd_tr064(&t, cmd, arg, arg2);
+        tr_free(&t);
+        return ret;
     }
 
     if (strcmp(cmd, "login") != 0 && strcmp(cmd, "list") != 0

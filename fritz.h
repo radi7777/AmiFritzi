@@ -40,6 +40,10 @@ void fb_session_init(struct FritzSession *s, const char *host);
 int fb_login(struct FritzSession *s, const char *user, const char *pass);
 int fb_logout(struct FritzSession *s);
 
+/* Den zuletzt angemeldeten Benutzer erfragen, ohne sich anzumelden
+ * (Latin-1). Leer, wenn die Box keinen nennt. */
+void fb_default_user(const char *host, int port, char *user, int usize);
+
 /* Ein AHA-Kommando. ain darf NULL sein. *out bekommt den Rumpf (malloc,
  * vom Aufrufer freizugeben), Zeilenende abgeschnitten. */
 int fb_aha(struct FritzSession *s, const char *cmd, const char *ain,
@@ -67,7 +71,16 @@ void fb_aha_response(const char *challenge, const char *pass, char *out,
 void fb_tr064_response(const char *uid, const char *realm, const char *pwd,
                        const char *sn, char out[33]);
 
-/* Inhalt von <tag>...</tag> ab src. 1 = gefunden. */
+/* Inhalt von <tag>...</tag> ab src, Entities (&amp; ...) aufgeloest.
+ * 1 = gefunden. */
 int xml_tag(const char *src, const char *tag, char *out, int outsize);
+
+/* &, <, >, " fuer XML maskieren. */
+void xml_escape(const char *in, char *out, int outsize);
+
+/* Die Box spricht UTF-8, der Amiga ISO-8859-1. utf8_to_latin1 wandelt an
+ * Ort und Stelle (wird nie laenger), Zeichen ausserhalb Latin-1 -> '?'. */
+void utf8_to_latin1(char *s);
+void latin1_to_utf8(const char *in, char *out, int outsize);
 
 #endif

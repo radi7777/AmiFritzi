@@ -4,6 +4,7 @@
 #   make            -> AmiFritzCLI (Amiga-Binary)
 #   make test       -> baut fuer den Linux-Host und prueft MD5, Login-
 #                      Rechnungen und das CLI gegen tests/mockbox.py
+#                      (AHA auf einem Port, TR-064 auf einem zweiten)
 #
 # Bewusst KEIN -lamiga: dessen sprintf ist die RawDoFmt-Fassung mit
 # 16-Bit-%d und gewinnt sonst gegen die von libnix (siehe AmiHomeassist).
@@ -16,7 +17,7 @@ CFLAGS  = -mcpu=$(CPU) -Os -fomit-frame-pointer -noixemul -MMD -MP \
           -Wall -Wextra -Wno-unused-parameter -Wno-pointer-sign -I.
 LDFLAGS = -noixemul -s -lgcc
 
-CORE_SRCS = net.c md5.c fritz.c
+CORE_SRCS = net.c md5.c fritz.c tr064.c
 CLI_OBJS  = $(CORE_SRCS:.c=.o) cli.o
 
 all: AmiFritzCLI
@@ -36,9 +37,9 @@ build/host/AmiFritzCLI: $(CORE_SRCS) cli.c *.h
 	@mkdir -p build/host
 	$(HOSTCC) $(HOSTCFLAGS) -o $@ $(CORE_SRCS) cli.c
 
-build/host/test_crypto: tests/test_crypto.c md5.c fritz.c net.c *.h
+build/host/test_crypto: tests/test_crypto.c $(CORE_SRCS) *.h
 	@mkdir -p build/host
-	$(HOSTCC) $(HOSTCFLAGS) -o $@ tests/test_crypto.c md5.c fritz.c net.c
+	$(HOSTCC) $(HOSTCFLAGS) -o $@ tests/test_crypto.c $(CORE_SRCS)
 
 test: build/host/test_crypto build/host/AmiFritzCLI
 	build/host/test_crypto

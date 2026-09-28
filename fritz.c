@@ -83,6 +83,34 @@ void fb_tr064_response(const char *uid, const char *realm, const char *pwd,
     md5_digest_hex(d, out);
 }
 
+static void xml_unescape(char *s)
+{
+    static const char *ent[][2] = {
+        { "&amp;", "&" }, { "&lt;", "<" }, { "&gt;", ">" },
+        { "&quot;", "\"" }, { "&apos;", "'" },
+    };
+    char *r = s, *w = s;
+    unsigned i;
+
+    while (*r) {
+        if (*r == '&') {
+            for (i = 0; i < sizeof(ent) / sizeof(ent[0]); i++) {
+                int n = (int)strlen(ent[i][0]);
+                if (strncmp(r, ent[i][0], n) == 0) {
+                    *w++ = ent[i][1][0];
+                    r += n;
+                    break;
+                }
+            }
+            if (i < sizeof(ent) / sizeof(ent[0])) {
+                continue;
+            }
+        }
+        *w++ = *r++;
+    }
+    *w = '\0';
+}
+
 int xml_tag(const char *src, const char *tag, char *out, int outsize)
 {
     char open[48];
@@ -108,7 +136,66 @@ int xml_tag(const char *src, const char *tag, char *out, int outsize)
     }
     memcpy(out, a, n);
     out[n] = '\0';
+    xml_unescape(out);
     return 1;
+}
+
+void xml_escape(const char *in, char *out, int outsize)
+{
+    int n = 0;
+
+    while (*in && n < outsize - 7) {
+        switch (*in) {
+        case '&': strcpy(out + n, "&amp;");  n += 5; break;
+        case '<': strcpy(out + n, "&lt;");   n += 4; break;
+        case '>': strcpy(out + n, "&gt;");   n += 4; break;
+        case '"': strcpy(out + n, "&quot;"); n += 6; break;
+        default:  out[n++] = *in;
+        }
+        in++;
+    }
+    out[n] = '\0';
+}
+
+void utf8_to_latin1(char *s)
+{
+    unsigned char *r = (unsigned char *)s;
+    unsigned char *w = (unsigned char *)s;
+
+    while (*r) {
+        if (*r < 0x80) {
+            *w++ = *r++;
+        } else if ((*r & 0xE0) == 0xC0 && (r[1] & 0xC0) == 0x80) {
+            unsigned c = ((unsigned)(*r & 0x1F) << 6) | (r[1] & 0x3F);
+            *w++ = (c < 256) ? (unsigned char)c : '?';
+            r += 2;
+        } else {
+            /* Laengere Folgen haben in Latin-1 keine Entsprechung. */
+            *w++ = '?';
+            r++;
+            while ((*r & 0xC0) == 0x80) {
+                r++;
+            }
+        }
+    }
+    *w = '\0';
+}
+
+void latin1_to_utf8(const char *in, char *out, int outsize)
+{
+    const unsigned char *r = (const unsigned char *)in;
+    int n = 0;
+
+    while (*r && n < outsize - 2) {
+        if (*r < 0x80) {
+            out[n++] = (char)*r;
+        } else {
+            out[n++] = (char)(0xC0 | (*r >> 6));
+            out[n++] = (char)(0x80 | (*r & 0x3F));
+        }
+        r++;
+    }
+    out[n] = '\0';
 }
 
 /* Der Benutzer mit last="1" aus <Users>: <User last="1">name</User> */
@@ -165,8 +252,9 @@ int fb_login(struct FritzSession *s, const char *user, const char *pass)
     struct HttpResponse r;
     char challenge[80];
     char response[128];
-    char euser[3 * FB_USER_LEN + 1];
-    char path[512];
+    char uuser[2 * FB_USER_LEN];
+    char euser[3 * sizeof(uuser) + 1];
+    char path[640];         /* euser bis 385 + response bis 127 */
     char tmp[24];
     int rc;
 
@@ -187,7 +275,9 @@ int fb_login(struct FritzSession *s, const char *user, const char *pass)
     if (user && *user) {
         strncpy(s->user, user, FB_USER_LEN - 1);
         s->user[FB_USER_LEN - 1] = '\0';
-    } else if (!last_user(r.body, s->user, FB_USER_LEN)) {
+    } else if (last_user(r.body, s->user, FB_USER_LEN)) {
+        utf8_to_latin1(s->user);
+    } else {
         s->user[0] = '\0';      /* sehr alte Firmware: Login ohne Namen */
     }
     if (xml_tag(r.body, "BlockTime", tmp, sizeof(tmp))) {
@@ -196,7 +286,9 @@ int fb_login(struct FritzSession *s, const char *user, const char *pass)
     http_free(&r);
 
     fb_aha_response(challenge, pass, response, sizeof(response));
-    url_encode(s->user, euser, sizeof(euser));
+    /* s->user steht in Latin-1, die Box erwartet UTF-8. */
+    latin1_to_utf8(s->user, uuser, sizeof(uuser));
+    url_encode(uuser, euser, sizeof(euser));
     sprintf(path, "/login_sid.lua?username=%s&response=%s", euser, response);
 
     rc = get_ok(s, path, &r);
@@ -225,6 +317,20 @@ int fb_login(struct FritzSession *s, const char *user, const char *pass)
         return net_fail(FB_EAUTH, msg);
     }
     return FB_OK;
+}
+
+void fb_default_user(const char *host, int port, char *user, int usize)
+{
+    struct HttpResponse r;
+
+    user[0] = '\0';
+    if (http_get(host, port, "/login_sid.lua", &r) != FB_OK) {
+        return;
+    }
+    if (r.status == 200 && last_user(r.body, user, usize)) {
+        utf8_to_latin1(user);
+    }
+    http_free(&r);
 }
 
 int fb_logout(struct FritzSession *s)
@@ -350,6 +456,7 @@ int fb_switch_list(struct FritzSession *s, struct FritzSwitch **list,
 
     for (i = 0; i < n; i++) {
         if (fb_aha(s, "getswitchname", l[i].ain, &v) == FB_OK) {
+            utf8_to_latin1(v);
             strncpy(l[i].name, v, FB_NAME_LEN - 1);
             free(v);
         }
