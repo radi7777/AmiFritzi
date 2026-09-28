@@ -6,6 +6,7 @@
 
 #include "tr064.h"
 #include "fritz.h"
+#include "mem.h"
 
 #define TR_AUTH_NS "http://soap-authentication.org/digest/2001/10/"
 
@@ -21,7 +22,7 @@ void tr_init(struct Tr064 *t, const char *host, const char *user,
 
 void tr_free(struct Tr064 *t)
 {
-    free(t->desc);
+    fb_free(t->desc);
     memset(t, 0, sizeof(*t));
 }
 
@@ -129,7 +130,7 @@ static char *build_envelope(struct Tr064 *t, const char *service,
                 uid);
     }
 
-    env = malloc(512 + strlen(hdr) + 2 * strlen(action) + strlen(service)
+    env = fb_malloc(512 + strlen(hdr) + 2 * strlen(action) + strlen(service)
                  + (args ? strlen(args) : 0));
     if (!env) {
         return NULL;
@@ -157,10 +158,10 @@ static int post_once(struct Tr064 *t, const char *url, const char *service,
 
     *resp = NULL;
     env = build_envelope(t, service, action, args);
-    extra = malloc(128 + strlen(service) + strlen(action));
+    extra = fb_malloc(128 + strlen(service) + strlen(action));
     if (!env || !extra) {
-        free(env);
-        free(extra);
+        fb_free(env);
+        fb_free(extra);
         return net_fail(FB_EMEM, "Kein Speicher");
     }
     sprintf(extra,
@@ -170,8 +171,8 @@ static int post_once(struct Tr064 *t, const char *url, const char *service,
 
     rc = http_request(t->host, t->port, "POST", url, extra, env,
                       (long)strlen(env), &r);
-    free(env);
-    free(extra);
+    fb_free(env);
+    fb_free(extra);
     if (rc != FB_OK) {
         return rc;
     }
@@ -251,7 +252,7 @@ int tr_call(struct Tr064 *t, const char *service, const char *action,
             *out = resp;
             return FB_OK;
         }
-        free(resp);
+        fb_free(resp);
 
         /* Hatten wir schon eine Anmeldung mitgeschickt, sind Rechte,
          * Sperre und Zwei-Faktor endgueltig. Ohne Nonce dagegen ist der
@@ -298,7 +299,7 @@ int tr_external_ip(struct Tr064 *t, char *ip, int ipsize)
             continue;           /* Dienst fehlt oder Verbindung inaktiv */
         }
         xml_tag(resp, "NewExternalIPAddress", ip, ipsize);
-        free(resp);
+        fb_free(resp);
         if (ip[0] && strcmp(ip, "0.0.0.0") != 0) {
             return FB_OK;
         }

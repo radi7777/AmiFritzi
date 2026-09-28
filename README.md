@@ -14,9 +14,30 @@ The plan and the protocol details are in [PROJECT.md](PROJECT.md).
 | 1     | TCP + HTTP over bsdsocket (`net.c`)        | done, tested against mock |
 | 2     | MD5, `login_sid.lua` login, smart plugs    | done, tested against mock |
 | 3     | TR-064: SOAP auth, service discovery, WAN IP, device info | done, tested against mock |
-| 4     | MUI GUI with a separate network process    | open |
+| 4     | MUI GUI with a separate network process    | written, job logic tested against mock; GUI not yet compiled |
 
-Not tested yet on real Amiga hardware or against a real box.
+Not tested yet on real Amiga hardware or against a real box. The Amiga-only
+files (`gui.c`, `worker.c`) have so far only been syntax-checked; the first
+real build with m68k-amigaos-gcc and the MUI headers is still to come.
+
+## AmiFritz (MUI)
+
+A login window asks for the box (default `fritz.box`), the user, and the
+password. With the user left empty, AmiFritz uses the user the box reports
+as last logged in. Host and user are saved to `ENV:`/`ENVARC:AmiFritz.prefs`;
+the password is never stored.
+
+After login, the main window shows the model, FRITZ!OS version, internet
+address, and uptime (through TR-064; shown as `-` when TR-064 is off), plus a
+table of all smart plugs with name, state, power, and an on/off button. The
+plugs are re-read every 30 seconds. When the session ID expires (after 20
+minutes idle, or after the box reboots), AmiFritz logs in again without
+asking.
+
+All network access runs in its own process ("AmiFritz Netz"). The GUI sends
+it jobs as Exec messages and gets the results back in the same message, so
+windows stay responsive while the box answers, for up to the 15-second
+timeout. Buttons are disabled while a job runs. See `worker.h` and `jobs.h`.
 
 ## AmiFritzCLI
 
@@ -48,9 +69,16 @@ For the Amiga, cross-compile with
 the same profile as AmiHomeassist:
 
 ```sh
-make                              # AmiFritzCLI
+make                              # AmiFritz (MUI) + AmiFritzCLI
 make TOOLCHAIN=/path/to/m68k-amigaos-gcc
 ```
+
+As in AmiHomeassist, MUI's developer headers are not in the repository,
+because MUI's licence only allows redistributing the complete archive. Put
+them under `vendor/mui/include/`. Only MUI's built-in classes are used, so
+NList is not needed. `muistubs.c` comes from
+[amimcp](https://github.com/thomas-luebker/amimcp) and is under Apache 2.0
+([LICENSE-Apache-2.0](LICENSE-Apache-2.0)).
 
 ## Tests without hardware
 
@@ -63,6 +91,8 @@ The network code builds unchanged on Linux and macOS with BSD sockets.
 - the complete CLI against `tests/mockbox.py`, a mocked FRITZ!Box that
   implements `login_sid.lua`, the AHA plug commands, and TR-064 with AVM's
   SOAP auth, including single-use nonces
+- the network process's job logic (`jobs.c`) against the same mock,
+  including the silent re-login after the SID expires
 
 To try the mock by hand, run `python3 tests/mockbox.py 8080 49000`, then
 `build/host/AmiFritzCLI -h 127.0.0.1 -P 8080 -p gurkensalat list` or `info`.
@@ -83,5 +113,7 @@ To try the mock by hand, run `python3 tests/mockbox.py 8080 49000`, then
   encoding. The reader stops at `Content-Length` or when the connection
   closes, whichever comes first.
 - `bsdsocket.library` is opened per request, because the library base is
-  per task. This matters for phase 4, where the network code moves to its own
-  process.
+  per task. Only the network process ever opens it.
+- Memory that crosses between the GUI and the network process comes from
+  `AllocVec()` (`mem.c`), not libnix `malloc()`, because the libnix
+  allocator has no locking.

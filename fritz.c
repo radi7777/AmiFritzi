@@ -6,6 +6,7 @@
 
 #include "fritz.h"
 #include "md5.h"
+#include "mem.h"
 
 void fb_session_init(struct FritzSession *s, const char *host)
 {
@@ -389,7 +390,7 @@ int fb_aha(struct FritzSession *s, const char *cmd, const char *ain,
         return rc;
     }
     chomp(r.body);
-    /* Rumpf an den Anfang des Puffers, damit der Aufrufer nur free()
+    /* Rumpf an den Anfang des Puffers, damit der Aufrufer nur fb_free()
      * braucht. */
     memmove(r.raw, r.body, strlen(r.body) + 1);
     *out = r.raw;
@@ -430,13 +431,13 @@ int fb_switch_list(struct FritzSession *s, struct FritzSwitch **list,
         }
     }
     if (n == 0) {
-        free(ains);
+        fb_free(ains);
         return FB_OK;
     }
 
-    l = calloc(n, sizeof(*l));
+    l = fb_calloc(n, sizeof(*l));
     if (!l) {
-        free(ains);
+        fb_free(ains);
         return net_fail(FB_EMEM, "Kein Speicher");
     }
 
@@ -452,27 +453,27 @@ int fb_switch_list(struct FritzSession *s, struct FritzSwitch **list,
         l[i].power_mw = -1;
         p = comma ? comma + 1 : p + strlen(p);
     }
-    free(ains);
+    fb_free(ains);
 
     for (i = 0; i < n; i++) {
         if (fb_aha(s, "getswitchname", l[i].ain, &v) == FB_OK) {
             utf8_to_latin1(v);
             strncpy(l[i].name, v, FB_NAME_LEN - 1);
-            free(v);
+            fb_free(v);
         }
         if (fb_aha(s, "getswitchstate", l[i].ain, &v) == FB_OK) {
             l[i].state = parse_state(v);
-            free(v);
+            fb_free(v);
         }
         rc = fb_aha(s, "getswitchpower", l[i].ain, &v);
         if (rc == FB_OK) {
             if (v[0] >= '0' && v[0] <= '9') {
                 l[i].power_mw = atol(v);
             }
-            free(v);
+            fb_free(v);
         }
         if (rc == FB_EAUTH) {
-            free(l);
+            fb_free(l);
             return rc;
         }
     }
@@ -492,6 +493,6 @@ int fb_switch_set(struct FritzSession *s, const char *ain, const char *cmd,
         return rc;
     }
     *newstate = parse_state(v);
-    free(v);
+    fb_free(v);
     return FB_OK;
 }

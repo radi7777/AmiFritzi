@@ -152,6 +152,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.aha(q)
         if u.path == "/tr64desc.xml":
             return self.reply(200, tr64desc(), "text/xml")
+        if u.path == "/__test/expire":      # SIDs verfallen lassen
+            with BOX.lock:
+                BOX.sids.clear()
+            return self.reply(200, "ok")
         return self.reply(404, "not found")
 
     def do_POST(self):

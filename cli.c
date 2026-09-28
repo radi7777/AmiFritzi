@@ -23,6 +23,7 @@
 
 #include "fritz.h"
 #include "tr064.h"
+#include "mem.h"
 
 static const char VERSTAG[] = "\0$VER: AmiFritzCLI 0.1 (28.09.2026)";
 
@@ -94,7 +95,7 @@ static int cmd_list(struct FritzSession *s)
             printf("%-16s %s          -  %s\n", l[i].ain, st, l[i].name);
         }
     }
-    free(l);
+    fb_free(l);
     return 0;
 }
 
@@ -150,7 +151,7 @@ static int cmd_tr064(struct Tr064 *t, const char *cmd, const char *a1,
         xml_tag(resp, "NewModelName", model, sizeof(model));
         xml_tag(resp, "NewSoftwareVersion", ver, sizeof(ver));
         xml_tag(resp, "NewUpTime", up, sizeof(up));
-        free(resp);
+        fb_free(resp);
         utf8_to_latin1(model);
         secs = atol(up);
         printf("Model:   %s\nFRITZ!OS: %s\nUptime:  %ldd %02ld:%02ld\n",
@@ -175,7 +176,7 @@ static int cmd_tr064(struct Tr064 *t, const char *cmd, const char *a1,
         }
         utf8_to_latin1(resp);
         printf("%s\n", resp);
-        free(resp);
+        fb_free(resp);
         return 0;
     }
 }

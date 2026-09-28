@@ -10,6 +10,7 @@
 #include <ctype.h>
 
 #include "net.h"
+#include "mem.h"
 
 #if defined(__amigaos__) || defined(AMIGA) || defined(__AMIGA__)
 
@@ -251,7 +252,7 @@ static int recv_response(int s, char **out, long *outlen)
     long len = 0;
     long hdrlen = -1;
     long clen = -1;
-    char *buf = malloc(cap);
+    char *buf = fb_malloc(cap);
 
     if (!buf) {
         return net_fail(FB_EMEM, "Kein Speicher");
@@ -262,9 +263,9 @@ static int recv_response(int s, char **out, long *outlen)
         long n;
 
         if (len + 2048 >= cap) {
-            char *nb = realloc(buf, cap * 2);
+            char *nb = fb_realloc(buf, cap * 2);
             if (!nb) {
-                free(buf);
+                fb_free(buf);
                 return net_fail(FB_EMEM, "Kein Speicher");
             }
             buf = nb;
@@ -273,11 +274,11 @@ static int recv_response(int s, char **out, long *outlen)
 
         w = sock_wait(s, 0, NET_IO_SECS);
         if (w == 0) {
-            free(buf);
+            fb_free(buf);
             return net_fail(FB_ENET, "Zeitueberschreitung beim Empfang");
         }
         if (w < 0) {
-            free(buf);
+            fb_free(buf);
             return net_fail(FB_ENET, "Empfang fehlgeschlagen");
         }
 
@@ -388,7 +389,7 @@ int http_request(const char *host, int port, const char *method,
         return rc;
     }
 
-    req = malloc(512 + strlen(path) + strlen(host)
+    req = fb_malloc(512 + strlen(path) + strlen(host)
                  + (extra_headers ? strlen(extra_headers) : 0) + body_len);
     if (!req) {
         sock_close(s);
@@ -417,7 +418,7 @@ int http_request(const char *host, int port, const char *method,
     }
 
     rc = send_all(s, req, reqlen);
-    free(req);
+    fb_free(req);
     if (rc == FB_OK) {
         rc = recv_response(s, &raw, &rawlen);
     }
@@ -442,7 +443,7 @@ int http_get(const char *host, int port, const char *path,
 
 void http_free(struct HttpResponse *r)
 {
-    free(r->raw);
+    fb_free(r->raw);
     memset(r, 0, sizeof(*r));
     r->content_length = -1;
 }
