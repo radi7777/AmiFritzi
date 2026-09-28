@@ -1,0 +1,5 @@
+*.o
+*.d
+build/
+AmiFritzCLI
+__pycache__/
