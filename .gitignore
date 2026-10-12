@@ -1,5 +1,10 @@
 *.o
 *.d
 build/
-AmiFritzCLI
+AmiFritzi
+AmiFritziCLI
+vendor/
 __pycache__/
+*.log
+.DS_Store
+push_local.py

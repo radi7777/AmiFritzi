@@ -1,4 +1,4 @@
-/* AmiFritz - Speicher, der aus zwei Prozessen zugleich benutzt werden darf.
+/* AmiFritzi - Speicher, der aus zwei Prozessen zugleich benutzt werden darf.
  *
  * Die Netzwerkaufrufe laufen in einem eigenen Prozess (worker.c). libnix'
  * malloc() haelt seine Verwaltung in globalen Variablen ohne Sperre - rufen

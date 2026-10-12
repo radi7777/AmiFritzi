@@ -1,4 +1,4 @@
-/* AmiFritz - prozessfester Speicher, siehe mem.h. */
+/* AmiFritzi - prozessfester Speicher, siehe mem.h. */
 
 #include <string.h>
 #include <stdlib.h>

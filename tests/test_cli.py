@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Faehrt das Host-Binary von AmiFritzCLI gegen tests/mockbox.py."""
+"""Faehrt das Host-Binary von AmiFritziCLI gegen tests/mockbox.py."""
 
 import os
 import subprocess

@@ -87,6 +87,7 @@ int main(int argc, char **argv)
           && strcmp(j.fwver, "154.08.00") == 0
           && j.uptime == 3 * 86400 + 4 * 3600 + 5 * 60, &j);
     check("connect: wan ip", strcmp(j.wanip, "203.0.113.7") == 0, &j);
+    check("connect: hosts", j.host_count == 3 && j.hosts_active == 2, &j);
 
     strcpy(j.ain, "08761 0000435");
     j.on = 1;

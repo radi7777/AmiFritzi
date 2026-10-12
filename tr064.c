@@ -1,4 +1,4 @@
-/* AmiFritz - TR-064 (SOAP) mit AVMs SOAP-Auth. */
+/* AmiFritzi - TR-064 (SOAP) mit AVMs SOAP-Auth. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -254,11 +254,11 @@ int tr_call(struct Tr064 *t, const char *service, const char *action,
         }
         fb_free(resp);
 
-        /* Hatten wir schon eine Anmeldung mitgeschickt, sind Rechte,
-         * Sperre und Zwei-Faktor endgueltig. Ohne Nonce dagegen ist der
-         * Fault nur die Aufforderung, sich anzumelden - AVM schickt dabei
-         * je nach Firmware 401 oder 503. */
-        if (status == 200 || t->last_fault == 606
+        /* Rechte (606) und Zwei-Faktor (866-868) sind endgueltig. Sperrt
+         * die Box trotz mitgeschickter Anmeldung (503), wuerde ein weiterer
+         * Versuch die Sperre nur verlaengern. Ohne Nonce dagegen ist der
+         * Fault nur die Aufforderung, sich anzumelden. */
+        if (t->last_fault == 606
                 || (t->last_fault >= 866 && t->last_fault <= 868)
                 || (had_nonce && t->last_fault == 503)) {
             break;
@@ -292,11 +292,11 @@ int tr_external_ip(struct Tr064 *t, char *ip, int ipsize)
     ip[0] = '\0';
     for (i = 0; i < 2; i++) {
         rc = tr_call(t, svc[i], "GetExternalIPAddress", NULL, &resp);
-        if (rc == FB_EAUTH || rc == FB_ENET || rc == FB_EMEM) {
+        if (rc == FB_ENET || rc == FB_EMEM) {
             return rc;
         }
         if (rc != FB_OK) {
-            continue;           /* Dienst fehlt oder Verbindung inaktiv */
+            continue;           /* Dienst fehlt, inaktiv oder nicht erlaubt */
         }
         xml_tag(resp, "NewExternalIPAddress", ip, ipsize);
         fb_free(resp);

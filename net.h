@@ -1,4 +1,4 @@
-/* AmiFritz - TCP und minimales HTTP ueber bsdsocket.library.
+/* AmiFritzi - TCP und minimales HTTP ueber bsdsocket.library.
  *
  * Laeuft unveraendert auch auf einem Unix-Rechner (BSD-Sockets). Das ist
  * Absicht: so lassen sich Protokoll und Login gegen tests/mockbox.py
@@ -43,6 +43,9 @@ int http_header(const struct HttpResponse *r, const char *name,
 
 /* Prozent-Kodierung fuer Query-Parameter (RFC 3986, unreserved bleibt). */
 void url_encode(const char *in, char *out, int outsize);
+
+/* Schliesst bsdsocket.library - am Ende jedes Tasks, der Netz benutzt. */
+void net_cleanup(void);
 
 const char *net_last_error(void);
 int net_fail(int code, const char *msg);

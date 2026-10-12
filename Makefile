@@ -1,7 +1,9 @@
-# AmiFritz - Cross-Build mit m68k-amigaos-gcc (AmigaPorts-Toolchain),
+# AmiFritzi - Cross-Build mit m68k-amigaos-gcc (AmigaPorts-Toolchain),
 # gleiches Zielprofil wie AmiHomeassist: 68020 aufwaerts, ohne FPU.
 #
-#   make            -> AmiFritz (MUI) + AmiFritzCLI
+#   make            -> AmiFritzi (MUI) + AmiFritziCLI
+#   make DEBUG=1    -> mit Diagnose-Log nach RAM:AmiFritzi.log (vorher
+#                      make clean, die Objekte haengen nicht an DEBUG)
 #   make test       -> baut fuer den Linux-Host und prueft MD5, Login-
 #                      Rechnungen, das CLI und die Auftragslogik des
 #                      Netzwerkprozesses gegen tests/mockbox.py
@@ -16,26 +18,30 @@
 TOOLCHAIN ?= $(HOME)/opt/m68k-amigaos-gcc-16.2
 CC         = $(TOOLCHAIN)/bin/m68k-amigaos-gcc
 AR         = $(TOOLCHAIN)/bin/m68k-amigaos-ar
+OBJDUMP    = $(TOOLCHAIN)/bin/m68k-amigaos-objdump
 AMIGALIB   = $(TOOLCHAIN)/m68k-amigaos/lib/libamiga.a
 CPU        = 68020
 
 CFLAGS  = -mcpu=$(CPU) -Os -fomit-frame-pointer -noixemul -MMD -MP \
           -Wall -Wextra -Wno-unused-parameter -Wno-pointer-sign \
           -Ivendor/mui/include -I.
+ifdef DEBUG
+CFLAGS += -DDEBUG
+endif
 LDFLAGS = -noixemul -s -lgcc
 
 CORE_SRCS = net.c md5.c fritz.c tr064.c mem.c
 CORE_OBJS = $(CORE_SRCS:.c=.o)
 CLI_OBJS  = $(CORE_OBJS) cli.o
 # muistubs.c MUSS eine eigene Uebersetzungseinheit bleiben - siehe dort.
-GUI_OBJS  = $(CORE_OBJS) jobs.o worker.o gui.o muistubs.o build/DoMethod.o
+GUI_OBJS  = $(CORE_OBJS) jobs.o worker.o gui.o muistubs.o stack.o debug.o build/DoMethod.o
 
-all: AmiFritz AmiFritzCLI
+all: AmiFritzi AmiFritziCLI
 
-AmiFritz: $(GUI_OBJS)
+AmiFritzi: $(GUI_OBJS)
 	$(CC) $(CFLAGS) -o $@ $(GUI_OBJS) $(LDFLAGS)
 
-AmiFritzCLI: $(CLI_OBJS)
+AmiFritziCLI: $(CLI_OBJS)
 	$(CC) $(CFLAGS) -o $@ $(CLI_OBJS) $(LDFLAGS)
 
 %.o: %.c
@@ -50,7 +56,7 @@ build/DoMethod.o: $(AMIGALIB)
 HOSTCC     ?= cc
 HOSTCFLAGS  = -O2 -Wall -Wextra -Wno-unused-parameter -I.
 
-build/host/AmiFritzCLI: $(CORE_SRCS) cli.c *.h
+build/host/AmiFritziCLI: $(CORE_SRCS) cli.c *.h
 	@mkdir -p build/host
 	$(HOSTCC) $(HOSTCFLAGS) -o $@ $(CORE_SRCS) cli.c
 
@@ -62,14 +68,23 @@ build/host/test_jobs: tests/test_jobs.c jobs.c $(CORE_SRCS) *.h
 	@mkdir -p build/host
 	$(HOSTCC) $(HOSTCFLAGS) -o $@ tests/test_jobs.c jobs.c $(CORE_SRCS)
 
-test: build/host/test_crypto build/host/AmiFritzCLI build/host/test_jobs
+test: build/host/test_crypto build/host/AmiFritziCLI build/host/test_jobs
 	build/host/test_crypto
-	python3 tests/test_cli.py build/host/AmiFritzCLI
+	python3 tests/test_cli.py build/host/AmiFritziCLI
 	python3 tests/test_jobs.py build/host/test_jobs
+
+check-fpu: AmiFritzi AmiFritziCLI
+	@python3 checkfpu.py $(OBJDUMP) AmiFritzi AmiFritziCLI
+
+push: AmiFritzi AmiFritziCLI check-fpu
+	python3 push.py AmiFritzi AmiFritzi.info AmiFritziCLI
+
+push-work: AmiFritzi AmiFritziCLI check-fpu
+	python3 push.py AmiFritzi AmiFritzi.info AmiFritziCLI --dest Work:programme/AmiFritzi
 
 -include $(GUI_OBJS:.o=.d) cli.d
 
 clean:
-	rm -rf *.o *.d build AmiFritz AmiFritzCLI
+	rm -rf *.o *.d build AmiFritzi AmiFritziCLI
 
-.PHONY: all test clean
+.PHONY: all test check-fpu push push-work clean

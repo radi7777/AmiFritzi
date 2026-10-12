@@ -1,4 +1,4 @@
-/* AmiFritz - Zugriff auf die FRITZ!Box. */
+/* AmiFritzi - Zugriff auf die FRITZ!Box. */
 
 #include <stdio.h>
 #include <stdlib.h>

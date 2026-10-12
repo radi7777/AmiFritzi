@@ -1,4 +1,4 @@
-/* AmiFritz - MD5 nach RFC 1321.
+/* AmiFritzi - MD5 nach RFC 1321.
  *
  * Die 32-Bit-Woerter werden ausdruecklich Byte fuer Byte als Little Endian
  * zusammengesetzt. Der 68k ist Big Endian - ein memcpy() in ein ULONG-Feld,

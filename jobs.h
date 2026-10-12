@@ -1,4 +1,4 @@
-/* AmiFritz - Auftraege an den Netzwerkprozess.
+/* AmiFritzi - Auftraege an den Netzwerkprozess.
  *
  * Die Oberflaeche fuellt eine JobData, schickt sie ab (worker.c) und
  * bekommt dieselbe Struktur mit den Ergebnissen zurueck. Was hier steht,
@@ -55,6 +55,40 @@ struct JobData {
     char fwver[32];
     char wanip[48];
     long uptime;                    /* Sekunden, -1 unbekannt */
+    char serial[32];
+
+    /* Internet */
+    char conn_status[32];           /* "Connected" etc. */
+    char dns1[40];
+    char dns2[40];
+    unsigned long max_down_bps;
+    unsigned long max_up_bps;
+    unsigned long bytes_sent;
+    unsigned long bytes_recv;
+
+    /* Mobilfunk (z. B. 6850 5G) */
+    int  has_mobile;
+    char mobile_tech[24];           /* "5G", "LTE", ... */
+    char mobile_signal[24];         /* Signalstaerke / RSRP */
+    char mobile_apn[48];
+    char mobile_roaming[24];
+
+    /* WLAN */
+    int  wlan24_active;
+    char wlan24_ssid[40];
+    int  wlan24_channel;
+    int  wlan50_active;
+    char wlan50_ssid[40];
+    int  wlan50_channel;
+    int  wlangast_active;
+    char wlangast_ssid[40];
+
+    /* Heimnetz */
+    int  host_count;
+    int  hosts_active;              /* -1 unbekannt */
+
+    /* Telefonie */
+    int  has_tel;
 };
 
 /* Gehoert dem Arbeitsprozess. */

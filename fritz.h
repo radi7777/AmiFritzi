@@ -1,4 +1,4 @@
-/* AmiFritz - Zugriff auf die FRITZ!Box: Login, AHA-Smart-Home, TR-064-Auth.
+/* AmiFritzi - Zugriff auf die FRITZ!Box: Login, AHA-Smart-Home, TR-064-Auth.
  *
  * Kennt nur Protokoll und Box, keine Oberflaeche. CLI und spaeter die
  * MUI-Oberflaeche benutzen ausschliesslich diese Schnittstelle. */

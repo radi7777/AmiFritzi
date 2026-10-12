@@ -1,4 +1,4 @@
-/* AmiFritz - MUI-Oberflaeche.
+/* AmiFritzi - MUI-Oberflaeche.
  *
  * Zwei Fenster: erst die Anmeldung (Box, Benutzer, Passwort), danach die
  * Uebersicht mit Geraeteinfo (TR-064) und den Steckdosen (AHA).
@@ -16,6 +16,7 @@
 #include <proto/intuition.h>
 #include <proto/muimaster.h>
 #include <libraries/mui.h>
+#include <libraries/gadtools.h>
 #include <clib/alib_protos.h>
 #include <devices/timer.h>
 
@@ -32,33 +33,64 @@
 #include "jobs.h"
 #include "mem.h"
 #include "worker.h"
+#include "stack.h"
+#include "logo_data.h"
+#include "debug.h"
+#ifndef IPTR
+typedef ULONG IPTR;
+#endif
 
 struct IntuitionBase *IntuitionBase = NULL;
 struct Library *MUIMasterBase = NULL;
 
-const char *VERSTAG = "$VER: AmiFritz 0.1 (28.09.2026)";
+#define APP_VERSION "0.5"
+#define APP_DATE    "12.10.2026"
+
+const char *VERSTAG = "$VER: AmiFritzi " APP_VERSION " (" APP_DATE ")";
 
 /* Steckdosen werden so oft neu gelesen, solange das Fenster offen ist. */
 #define REFRESH_SECS 30
 
-#define PREFS_ENV    "ENV:AmiFritz.prefs"
-#define PREFS_ENVARC "ENVARC:AmiFritz.prefs"
+#define PREFS_ENV    "ENV:AmiFritzi.prefs"
+#define PREFS_ENVARC "ENVARC:AmiFritzi.prefs"
+/* Bis 0.25 hiess das Programm AmiFritz - alte Einstellungen weiter lesen. */
+#define PREFS_OLD    "ENVARC:AmiFritz.prefs"
 
 enum {
     ID_CONNECT = 1, ID_REFRESH, ID_LOGOUT,
+    ID_ABOUT, ID_PREFS, ID_CLOSE_LOGIN, ID_QUIT,
     ID_PLUG = 1000              /* + Nummer der Steckdose */
+};
+
+static struct NewMenu g_menu[] = {
+    { NM_TITLE, (STRPTR)"Projekt",           NULL, 0, 0, NULL },
+    { NM_ITEM,  (STRPTR)"Ueber...",          (STRPTR)"?",  0, 0, (APTR)ID_ABOUT },
+    { NM_ITEM,  (STRPTR)"Einstellungen...",  (STRPTR)"E",  0, 0, (APTR)ID_PREFS },
+    { NM_ITEM,  (STRPTR)NM_BARLABEL,         NULL, 0, 0, NULL },
+    { NM_ITEM,  (STRPTR)"Beenden",           (STRPTR)"Q",  0, 0, (APTR)ID_QUIT },
+    { NM_END,   NULL,                        NULL, 0, 0, NULL }
 };
 
 static Object *app;
 static Object *win_login, *str_host, *str_user, *str_pass, *bt_connect;
 static Object *txt_login;
-static Object *win_main, *txt_model, *txt_fw, *txt_ip, *txt_uptime;
-static Object *grp_plugs, *bt_refresh, *bt_logout, *txt_status;
-static Object *obj_plugs = NULL;    /* aktueller Inhalt von grp_plugs */
+static Object *win_main, *bt_refresh, *bt_logout, *txt_status;
+
+/* FRITZ!Box & Internet */
+static Object *txt_model, *txt_fw, *txt_uptime;
+static Object *txt_conn, *txt_ip, *txt_speed;
+
+/* WLAN & Heimnetz */
+static Object *txt_wlan, *txt_hosts;
+
+/* Smart Home */
+static Object *grp_plugs, *obj_plugs = NULL;
 
 /* Eine Steckdose, wie sie gerade angezeigt wird. */
 struct PlugUI {
     char    ain[FB_AIN_LEN];
+    char    name[48];
+    char    power_str[32];
     int     state;
     long    power_mw;
     Object *txt_state;
@@ -68,6 +100,20 @@ struct PlugUI {
 
 static struct PlugUI *g_plugs = NULL;
 static int            g_nplugs = 0;
+
+struct GuiState {
+    char model[64];
+    char fwver[32];
+    char uptime[64];
+    char conn[64];
+    char ip[64];
+    char speed[64];
+    char wlan[64];
+    char hosts[64];
+    char status[256];
+    char login_msg[160];
+};
+static struct GuiState g_state;
 
 static struct JobMsg g_job;         /* hoechstens ein Auftrag unterwegs */
 static BOOL          g_busy = FALSE;
@@ -79,7 +125,16 @@ static BOOL          g_connected = FALSE;
 
 static void say(Object *obj, const char *text)
 {
-    set(obj, MUIA_Text_Contents, (ULONG)text);
+    if (obj && text) {
+        set(obj, MUIA_Text_Contents, (ULONG)text);
+    }
+}
+
+static void set_status(const char *msg)
+{
+    strncpy(g_state.status, msg, sizeof(g_state.status) - 1);
+    g_state.status[sizeof(g_state.status) - 1] = '\0';
+    say(txt_status, g_state.status);
 }
 
 static Object *button(const char *label)
@@ -96,6 +151,24 @@ static Object *text(const char *contents)
 {
     return MUI_NewObject(MUIC_Text,
         MUIA_Text_Contents, (ULONG)contents,
+        TAG_DONE);
+}
+
+static const char bg_blue[] = "2:0c0c0c0c,5c5c5c5c,a4a4a4a4";
+
+static Object *make_logo(void)
+{
+    return MUI_NewObject(MUIC_Bodychunk,
+        MUIA_FixWidth,              LOGO_WIDTH,
+        MUIA_FixHeight,             LOGO_HEIGHT,
+        MUIA_Bitmap_Width,          LOGO_WIDTH,
+        MUIA_Bitmap_Height,         LOGO_HEIGHT,
+        MUIA_Bodychunk_Depth,       LOGO_DEPTH,
+        MUIA_Bodychunk_Body,        (UBYTE *)logo_body,
+        MUIA_Bodychunk_Compression, 0,
+        MUIA_Bodychunk_Masking,     0,
+        MUIA_Bitmap_SourceColors,   (ULONG *)logo_colors,
+        MUIA_Bitmap_Transparent,    0,
         TAG_DONE);
 }
 
@@ -130,21 +203,31 @@ static void set_busy(BOOL busy)
 }
 
 /* ------------------------------------------------------------------ */
-/* Einstellungen: nur Box und Benutzer. Das Passwort wird nie gespeichert. */
+/* Einstellungen: Box, Benutzer und Passwort in ENVARC: / ENV:        */
 /* ------------------------------------------------------------------ */
 
-static void prefs_load(char *host, int hsize, char *user, int usize)
+static void prefs_load(char *host, int hsize, char *user, int usize, char *pass, int psize)
 {
-    char line[160];
+    char line[200];
     FILE *f = fopen(PREFS_ENV, "r");
+
+    if (!f) {
+        f = fopen(PREFS_ENVARC, "r");
+    }
+    if (!f) {
+        f = fopen(PREFS_OLD, "r");
+    }
 
     strcpy(host, "fritz.box");
     user[0] = '\0';
+    if (pass && psize > 0) {
+        pass[0] = '\0';
+    }
     if (!f) {
         return;
     }
     while (fgets(line, sizeof(line), f)) {
-        char *nl = strchr(line, '\n');
+        char *nl = strpbrk(line, "\r\n");
 
         if (nl) {
             *nl = '\0';
@@ -155,12 +238,15 @@ static void prefs_load(char *host, int hsize, char *user, int usize)
         } else if (strncmp(line, "USER=", 5) == 0) {
             strncpy(user, line + 5, usize - 1);
             user[usize - 1] = '\0';
+        } else if (pass && strncmp(line, "PASS=", 5) == 0 && line[5]) {
+            strncpy(pass, line + 5, psize - 1);
+            pass[psize - 1] = '\0';
         }
     }
     fclose(f);
 }
 
-static void prefs_save(const char *host, const char *user)
+static void prefs_save(const char *host, const char *user, const char *pass)
 {
     static const char *files[] = { PREFS_ENV, PREFS_ENVARC };
     int i;
@@ -169,7 +255,10 @@ static void prefs_save(const char *host, const char *user)
         FILE *f = fopen(files[i], "w");
 
         if (f) {
-            fprintf(f, "HOST=%s\nUSER=%s\n", host, user);
+            fprintf(f, "HOST=%s\nUSER=%s\nPASS=%s\n",
+                    host ? host : "",
+                    user ? user : "",
+                    pass ? pass : "");
             fclose(f);
         }
     }
@@ -258,18 +347,15 @@ static const char *action_text(int state)
     return state == 1 ? "Ausschalten" : "Einschalten";
 }
 
-/* MUIs Text-Klasse kopiert den Inhalt - ein Puffer auf dem Stapel reicht. */
 static void show_power(struct PlugUI *p)
 {
-    char buf[24];
-
     if (p->power_mw < 0) {
-        strcpy(buf, "\33r-");
+        strcpy(p->power_str, "\33r-");
     } else {
-        sprintf(buf, "\33r%ld,%02ld W", p->power_mw / 1000,
+        sprintf(p->power_str, "\33r%ld,%02ld W", p->power_mw / 1000,
                 (p->power_mw % 1000) / 10);
     }
-    say(p->txt_power, buf);
+    say(p->txt_power, p->power_str);
 }
 
 static void show_plug(struct PlugUI *p)
@@ -302,7 +388,8 @@ static void plugs_build(const struct FritzSwitch *sw, int n)
     Object *grp;
     int i;
 
-    if (n == 0) {
+    dbg_log("plugs_build: start n=%d\n", n);
+    if (n <= 0 || !sw) {
         grp = text("\33cKeine Steckdosen gefunden.");
     } else {
         grp = MUI_NewObject(MUIC_Group,
@@ -310,23 +397,25 @@ static void plugs_build(const struct FritzSwitch *sw, int n)
             TAG_DONE);
     }
     if (!grp) {
+        dbg_log("plugs_build: grp is NULL!\n");
         return;
     }
 
     fb_free(g_plugs);
-    g_plugs = n ? fb_calloc(n, sizeof(*g_plugs)) : NULL;
+    g_plugs = n > 0 ? fb_calloc(n, sizeof(*g_plugs)) : NULL;
     g_nplugs = g_plugs ? n : 0;
 
     for (i = 0; i < g_nplugs; i++) {
         struct PlugUI *p = &g_plugs[i];
 
         strcpy(p->ain, sw[i].ain);
+        strncpy(p->name, sw[i].name[0] ? sw[i].name : sw[i].ain, sizeof(p->name) - 1);
+        p->name[sizeof(p->name) - 1] = '\0';
         p->state = sw[i].state;
         p->power_mw = sw[i].power_mw;
 
         /* Ohne Namen die AIN - die steht auch auf dem Geraet. */
-        DoMethod(grp, OM_ADDMEMBER, text(sw[i].name[0] ? sw[i].name
-                                                        : sw[i].ain));
+        DoMethod(grp, OM_ADDMEMBER, text(p->name));
         DoMethod(grp, OM_ADDMEMBER, p->txt_state = text(""));
         DoMethod(grp, OM_ADDMEMBER, p->txt_power = text(""));
         DoMethod(grp, OM_ADDMEMBER, p->btn = button(""));
@@ -336,14 +425,20 @@ static void plugs_build(const struct FritzSwitch *sw, int n)
         show_plug(p);
     }
 
+    dbg_log("plugs_build: InitChange\n");
     DoMethod(grp_plugs, MUIM_Group_InitChange);
     if (obj_plugs) {
+        dbg_log("plugs_build: RemMember obj_plugs=%p\n", obj_plugs);
         DoMethod(grp_plugs, OM_REMMEMBER, obj_plugs);
+        dbg_log("plugs_build: DisposeObject obj_plugs\n");
         MUI_DisposeObject(obj_plugs);
     }
+    dbg_log("plugs_build: AddMember grp\n");
     DoMethod(grp_plugs, OM_ADDMEMBER, grp);
     obj_plugs = grp;
+    dbg_log("plugs_build: ExitChange\n");
     DoMethod(grp_plugs, MUIM_Group_ExitChange);
+    dbg_log("plugs_build: finished\n");
 }
 
 static void plugs_update(const struct FritzSwitch *sw, int n)
@@ -373,27 +468,37 @@ static void send_job(int type)
     worker_send(&g_job);
 }
 
+/* Gespeichert wird erst, wenn die Anmeldung geklappt hat - sonst landet
+ * ein vertipptes Passwort in ENVARC:. Bis dahin liegt es hier, denn der
+ * Netzwerkprozess loescht seine Kopie im Auftrag. */
+static char g_save_pass[128];
+
+static void connect_with(const char *host, const char *user, const char *pass)
+{
+    job_result_free(&g_job.d);          /* vor dem memset, sonst Leck */
+    memset(&g_job.d, 0, sizeof(g_job.d));
+    strncpy(g_job.d.host, host[0] ? host : "fritz.box",
+            sizeof(g_job.d.host) - 1);
+    strncpy(g_job.d.user, user, sizeof(g_job.d.user) - 1);
+    strncpy(g_job.d.pass, pass, sizeof(g_job.d.pass) - 1);
+    strncpy(g_save_pass, pass, sizeof(g_save_pass) - 1);
+
+    say(txt_login, "Verbinde ...");
+    send_job(JOB_CONNECT);
+}
+
 static void start_connect(void)
 {
-    char pass[128];
+    char host[FB_HOST_LEN], user[FB_USER_LEN], pass[128];
 
     if (g_busy) {
         return;
     }
-    job_result_free(&g_job.d);          /* vor dem memset, sonst Leck */
-    memset(&g_job.d, 0, sizeof(g_job.d));
-    string_get(str_host, g_job.d.host, sizeof(g_job.d.host));
-    string_get(str_user, g_job.d.user, sizeof(g_job.d.user));
+    string_get(str_host, host, sizeof(host));
+    string_get(str_user, user, sizeof(user));
     string_get(str_pass, pass, sizeof(pass));
-    if (!g_job.d.host[0]) {
-        strcpy(g_job.d.host, "fritz.box");
-    }
-    strcpy(g_job.d.pass, pass);
+    connect_with(host, user, pass);
     memset(pass, 0, sizeof(pass));
-
-    prefs_save(g_job.d.host, g_job.d.user);
-    say(txt_login, "Verbinde ...");
-    send_job(JOB_CONNECT);
 }
 
 static void start_refresh(void)
@@ -401,7 +506,7 @@ static void start_refresh(void)
     if (g_busy || !g_connected) {
         return;
     }
-    say(txt_status, "Lese Steckdosen ...");
+    set_status("Lese Steckdosen ...");
     send_job(JOB_REFRESH);
 }
 
@@ -412,7 +517,7 @@ static void start_switch(int n)
     }
     strcpy(g_job.d.ain, g_plugs[n].ain);
     g_job.d.on = g_plugs[n].state == 1 ? 0 : 1;
-    say(txt_status, "Schalte ...");
+    set_status("Schalte ...");
     send_job(JOB_SWITCH);
 }
 
@@ -420,74 +525,179 @@ static void show_login(const char *msg)
 {
     g_connected = FALSE;
     timer_stop();
-    set(win_main, MUIA_Window_Open, FALSE);
     set(win_login, MUIA_Window_Open, TRUE);
-    say(txt_login, msg);
+    set(win_main, MUIA_Window_Open, FALSE);
+    strncpy(g_state.login_msg, msg, sizeof(g_state.login_msg) - 1);
+    g_state.login_msg[sizeof(g_state.login_msg) - 1] = '\0';
+    say(txt_login, g_state.login_msg);
     set(win_login, MUIA_Window_ActiveObject, str_pass);
 }
 
 static void show_info(const struct JobData *d)
 {
-    char buf[64];
-
+    dbg_log("show_info: start tr_ok=%d\n", d->tr_ok);
     if (!d->tr_ok) {
         say(txt_model, "-");
         say(txt_fw, "-");
-        say(txt_ip, "-");
         say(txt_uptime, "-");
+        say(txt_conn, "-");
+        say(txt_ip, "-");
+        say(txt_speed, "-");
+        say(txt_wlan, "-");
+        say(txt_hosts, "-");
+        dbg_log("show_info: tr_ok=0 finished\n");
         return;
     }
-    say(txt_model, d->model);
-    say(txt_fw, d->fwver);
-    say(txt_ip, d->wanip[0] ? d->wanip : "keine Verbindung");
+
+    /* Modell & Firmware */
+    strncpy(g_state.model, d->model, sizeof(g_state.model) - 1);
+    g_state.model[sizeof(g_state.model) - 1] = '\0';
+    say(txt_model, g_state.model);
+
+    strncpy(g_state.fwver, d->fwver, sizeof(g_state.fwver) - 1);
+    g_state.fwver[sizeof(g_state.fwver) - 1] = '\0';
+    say(txt_fw, g_state.fwver);
+
+    /* Laufzeit */
     if (d->uptime >= 0) {
-        sprintf(buf, "%ld Tage, %ld:%02ld h", d->uptime / 86400,
+        sprintf(g_state.uptime, "%ld Tage, %ld:%02ld h", d->uptime / 86400,
                 (d->uptime / 3600) % 24, (d->uptime / 60) % 60);
-        say(txt_uptime, buf);
+        say(txt_uptime, g_state.uptime);
     } else {
         say(txt_uptime, "-");
     }
+
+    /* Verbindung & Signal (5G / Mobilfunk oder DSL) */
+    if (d->has_mobile && d->mobile_tech[0]) {
+        if (d->mobile_signal[0]) {
+            char sig[32] = "";
+            const char *m = strstr(d->mobile_signal, "main=");
+            if (m) {
+                int val = atoi(m + 5);
+                sprintf(sig, " (%d dBm)", val);
+            }
+            sprintf(g_state.conn, "%s%s", d->mobile_tech, sig);
+        } else {
+            strncpy(g_state.conn, d->mobile_tech, sizeof(g_state.conn) - 1);
+            g_state.conn[sizeof(g_state.conn) - 1] = '\0';
+        }
+    } else if (d->conn_status[0]) {
+        strncpy(g_state.conn, d->conn_status, sizeof(g_state.conn) - 1);
+        g_state.conn[sizeof(g_state.conn) - 1] = '\0';
+    } else {
+        strcpy(g_state.conn, "Verbunden");
+    }
+    say(txt_conn, g_state.conn);
+
+    /* Internet-IP */
+    if (d->wanip[0]) {
+        strncpy(g_state.ip, d->wanip, sizeof(g_state.ip) - 1);
+        g_state.ip[sizeof(g_state.ip) - 1] = '\0';
+    } else {
+        strcpy(g_state.ip, "-");
+    }
+    say(txt_ip, g_state.ip);
+
+    /* Geschwindigkeit */
+    if (d->max_down_bps > 0 || d->max_up_bps > 0) {
+        sprintf(g_state.speed, "%lu Mbit/s / %lu Mbit/s",
+                d->max_down_bps / 1000000, d->max_up_bps / 1000000);
+    } else {
+        strcpy(g_state.speed, "-");
+    }
+    say(txt_speed, g_state.speed);
+
+    /* WLAN */
+    if (d->wlan24_active && d->wlan24_ssid[0]) {
+        sprintf(g_state.wlan, "2.4 GHz: \"%s\" (Kanal %d)",
+                d->wlan24_ssid, d->wlan24_channel);
+    } else if (d->wlan24_active) {
+        strcpy(g_state.wlan, "2.4 GHz aktiv");
+    } else {
+        strcpy(g_state.wlan, "WLAN aus");
+    }
+    say(txt_wlan, g_state.wlan);
+
+    /* Heimnetz Geraete */
+    if (d->host_count > 0) {
+        if (d->hosts_active >= 0) {
+            sprintf(g_state.hosts, "%d Geraete (%d online)",
+                    d->host_count, d->hosts_active);
+        } else {
+            sprintf(g_state.hosts, "%d Geraete", d->host_count);
+        }
+    } else {
+        strcpy(g_state.hosts, "-");
+    }
+    say(txt_hosts, g_state.hosts);
+
+    dbg_log("show_info: finished\n");
 }
 
 static void job_finished(struct JobMsg *m)
 {
     struct JobData *d = &m->d;
-    char buf[240];
 
     set_busy(FALSE);
 
     switch (d->type) {
     case JOB_CONNECT:
         if (d->rc != FB_OK) {
-            say(txt_login, d->error);
+            memset(g_save_pass, 0, sizeof(g_save_pass));
+            show_login(d->error[0] ? d->error : "Verbindung fehlgeschlagen.");
             break;
         }
+        prefs_save(d->host, d->user, g_save_pass);
+        memset(g_save_pass, 0, sizeof(g_save_pass));
+        dbg_log("JOB_CONNECT: rc=%d tr_ok=%d swcount=%d hostcount=%d\n",
+                d->rc, d->tr_ok, d->swcount, d->host_count);
         g_connected = TRUE;
-        set(str_pass, MUIA_String_Contents, (ULONG)"");
+
+        /* Erst alle Daten und dynamischen Gruppen fuellen, waehrend das
+         * Fenster noch geschlossen ist. Unter MUI 3.8 loest InitChange/ExitChange
+         * auf unsichtbaren Seiten eines offenen Fensters Layout-Fehler aus. */
+        dbg_log("Showing info...\n");
         show_info(d);
+
+        dbg_log("Building plugs...\n");
         plugs_build(d->sw, d->swcount);
-        set(win_login, MUIA_Window_Open, FALSE);
-        set(win_main, MUIA_Window_Open, TRUE);
 
         if (d->error[0]) {
-            sprintf(buf, "Smart Home: %.200s", d->error);
+            sprintf(g_state.status, "Smart Home: %.200s", d->error);
         } else if (!d->tr_ok) {
-            sprintf(buf, "Angemeldet. TR-064: %.200s", d->tr_error);
+            sprintf(g_state.status, "Angemeldet. TR-064: %.200s", d->tr_error);
         } else {
-            sprintf(buf, "Angemeldet als %.60s", d->user_used);
+            sprintf(g_state.status, "Angemeldet als %.60s", d->user_used);
         }
-        say(txt_status, buf);
+        say(txt_status, g_state.status);
+
+        /* Login-Fenster schliessen, Hauptfenster oeffnen */
+        set(win_login, MUIA_Window_Open, FALSE);
+        dbg_log("Opening win_main...\n");
+        set(win_main, MUIA_Window_Open, TRUE);
+        {
+            ULONG is_open = FALSE;
+            get(win_main, MUIA_Window_Open, &is_open);
+            dbg_log("win_main is_open = %lu\n", is_open);
+            if (!is_open) {
+                g_connected = FALSE;
+                set(win_login, MUIA_Window_Open, TRUE);
+                say(txt_login, "Hauptfenster konnte nicht geoeffnet werden.");
+                break;
+            }
+        }
+        dbg_log("Connect sequence finished successfully.\n");
         timer_start(REFRESH_SECS);
         break;
 
     case JOB_REFRESH:
         if (d->rc == FB_OK) {
             plugs_update(d->sw, d->swcount);
-            say(txt_status, "");
+            set_status("");
         } else if (d->rc == FB_EAUTH) {
             show_login(d->error);   /* Neuanmeldung ist auch gescheitert */
         } else {
-            say(txt_status, d->error);
+            set_status(d->error);
         }
         break;
 
@@ -495,7 +705,7 @@ static void job_finished(struct JobMsg *m)
         int i;
 
         if (d->rc != FB_OK) {
-            say(txt_status, d->error);
+            set_status(d->error);
             if (d->rc == FB_EAUTH) {
                 show_login(d->error);
             }
@@ -507,7 +717,7 @@ static void job_finished(struct JobMsg *m)
                 show_plug(&g_plugs[i]);
             }
         }
-        say(txt_status, "");
+        set_status("");
         break;
     }
 
@@ -534,78 +744,106 @@ static void cleanup(void)
     }
 }
 
-int main(void)
+static int real_main(void)
 {
-    char host[FB_HOST_LEN], user[FB_USER_LEN];
+    char host[FB_HOST_LEN], user[FB_USER_LEN], pass[128];
     ULONG sigs = 0;
     ULONG id;
+    BOOL running = TRUE;
 
     IntuitionBase = (struct IntuitionBase *)
                         OpenLibrary((STRPTR)"intuition.library", 37);
     if (!IntuitionBase) {
-        printf("AmiFritz braucht AmigaOS 2.04 oder neuer.\n");
+        printf("AmiFritzi braucht AmigaOS 2.04 oder neuer.\n");
         return 20;
     }
     MUIMasterBase = OpenLibrary((STRPTR)MUIMASTER_NAME, MUIMASTER_VMIN);
     if (!MUIMasterBase) {
-        printf("AmiFritz braucht MUI 3.8 oder neuer.\n");
+        printf("AmiFritzi braucht MUI 3.8 oder neuer.\n");
         cleanup();
         return 20;
     }
 
-    prefs_load(host, sizeof(host), user, sizeof(user));
+    pass[0] = '\0';
+    prefs_load(host, sizeof(host), user, sizeof(user), pass, sizeof(pass));
 
     app = MUI_NewObject(MUIC_Application,
-        MUIA_Application_Title,       (ULONG)"AmiFritz",
+        MUIA_Application_Title,       (ULONG)"AmiFritzi",
         MUIA_Application_Version,     (ULONG)VERSTAG,
         MUIA_Application_Copyright,   (ULONG)"2026",
         MUIA_Application_Author,      (ULONG)"Radi",
         MUIA_Application_Description, (ULONG)"FRITZ!Box am Amiga",
-        MUIA_Application_Base,        (ULONG)"AMIFRITZ",
+        MUIA_Application_Base,        (ULONG)"AMIFRITZI",
+        MUIA_Application_Menustrip,   (ULONG)MUI_MakeObject(MUIO_MenustripNM, (ULONG)g_menu, 0),
 
         MUIA_Application_Window, win_login = MUI_NewObject(MUIC_Window,
-            MUIA_Window_Title, (ULONG)"AmiFritz - Anmeldung",
+            MUIA_Window_Title, (ULONG)"AmiFritzi - Einstellungen & Anmeldung",
             MUIA_Window_ID,    MAKE_ID('A','F','R','1'),
             MUIA_Window_RootObject, MUI_NewObject(MUIC_Group,
                 MUIA_Group_Child, MUI_NewObject(MUIC_Group,
                     MUIA_Group_Columns, 2,
-                    MUIA_Group_Child, label("FRITZ!Box"),
+                    MUIA_Group_Child, label("FRITZ!Box (IP/Host)"),
                     MUIA_Group_Child, str_host = string(FB_HOST_LEN - 1, FALSE),
                     MUIA_Group_Child, label("Benutzer"),
                     MUIA_Group_Child, str_user = string(FB_USER_LEN - 1, FALSE),
                     MUIA_Group_Child, label("Passwort"),
                     MUIA_Group_Child, str_pass = string(127, TRUE),
                     TAG_DONE),
-                MUIA_Group_Child, text("\33cBenutzer leer lassen = zuletzt "
-                                       "an der Box angemeldeter."),
+                MUIA_Group_Child, text("\33cIP (z.B. 192.168.178.1) oder Host (fritz.box)\nBenutzer leer lassen = Standard-Benutzer."),
                 MUIA_Group_Child, txt_login = MUI_NewObject(MUIC_Text,
                     MUIA_Frame,         MUIV_Frame_Text,
                     MUIA_Text_Contents, (ULONG)"",
                     TAG_DONE),
-                MUIA_Group_Child, bt_connect = button("Verbinden"),
+                MUIA_Group_Child, bt_connect = button("Speichern & Verbinden"),
                 TAG_DONE),
             TAG_DONE),
 
         MUIA_Application_Window, win_main = MUI_NewObject(MUIC_Window,
-            MUIA_Window_Title,  (ULONG)"AmiFritz",
+            MUIA_Window_Title,  (ULONG)"AmiFritzi",
             MUIA_Window_ID,     MAKE_ID('A','F','R','2'),
-            MUIA_Window_Width,  MUIV_Window_Width_Visible(35),
-            MUIA_Window_Height, MUIV_Window_Height_Visible(45),
+            MUIA_Window_Width,  MUIV_Window_Width_Visible(55),
+            MUIA_Window_Height, MUIV_Window_Height_Visible(70),
             MUIA_Window_RootObject, MUI_NewObject(MUIC_Group,
+
+                /* Blauer Header-Bereich mit AmiFritzi-Logo */
+                MUIA_Group_Child, MUI_NewObject(MUIC_Group,
+                    MUIA_Frame,       MUIV_Frame_Group,
+                    MUIA_Background,  (ULONG)bg_blue,
+                    MUIA_VertWeight,  0,
+                    MUIA_Group_Horiz, TRUE,
+                    MUIA_Group_Child, MUI_NewObject(MUIC_Rectangle, TAG_DONE),
+                    MUIA_Group_Child, make_logo(),
+                    MUIA_Group_Child, MUI_NewObject(MUIC_Rectangle, TAG_DONE),
+                    TAG_DONE),
 
                 MUIA_Group_Child, MUI_NewObject(MUIC_Group,
                     MUIA_Frame,        MUIV_Frame_Group,
-                    MUIA_FrameTitle,   (ULONG)"FRITZ!Box",
+                    MUIA_FrameTitle,   (ULONG)"FRITZ!Box & Internet",
                     MUIA_Group_Columns, 2,
                     MUIA_VertWeight,   0,
                     MUIA_Group_Child, label("Modell"),
                     MUIA_Group_Child, txt_model = text("-"),
                     MUIA_Group_Child, label("FRITZ!OS"),
                     MUIA_Group_Child, txt_fw = text("-"),
-                    MUIA_Group_Child, label("Internet"),
+                    MUIA_Group_Child, label("Verbindung"),
+                    MUIA_Group_Child, txt_conn = text("-"),
+                    MUIA_Group_Child, label("Internet-IP"),
                     MUIA_Group_Child, txt_ip = text("-"),
+                    MUIA_Group_Child, label("Datenrate (Down/Up)"),
+                    MUIA_Group_Child, txt_speed = text("-"),
                     MUIA_Group_Child, label("Laufzeit"),
                     MUIA_Group_Child, txt_uptime = text("-"),
+                    TAG_DONE),
+
+                MUIA_Group_Child, MUI_NewObject(MUIC_Group,
+                    MUIA_Frame,        MUIV_Frame_Group,
+                    MUIA_FrameTitle,   (ULONG)"WLAN & Heimnetz",
+                    MUIA_Group_Columns, 2,
+                    MUIA_VertWeight,   0,
+                    MUIA_Group_Child, label("Funknetz"),
+                    MUIA_Group_Child, txt_wlan = text("-"),
+                    MUIA_Group_Child, label("Netzwerkgeraete"),
+                    MUIA_Group_Child, txt_hosts = text("-"),
                     TAG_DONE),
 
                 MUIA_Group_Child, MUI_NewObject(MUIC_Group,
@@ -621,6 +859,7 @@ int main(void)
 
                 MUIA_Group_Child, MUI_NewObject(MUIC_Group,
                     MUIA_Group_Horiz, TRUE,
+                    MUIA_VertWeight,  0,
                     MUIA_Group_Child, bt_refresh = button("Aktualisieren"),
                     MUIA_Group_Child, bt_logout  = button("Abmelden"),
                     TAG_DONE),
@@ -635,7 +874,7 @@ int main(void)
         TAG_DONE);
 
     if (!app) {
-        printf("AmiFritz: MUI-Oberflaeche liess sich nicht anlegen.\n");
+        printf("AmiFritzi: MUI-Oberflaeche liess sich nicht anlegen.\n");
         cleanup();
         return 20;
     }
@@ -644,10 +883,13 @@ int main(void)
     obj_plugs = MUI_NewObject(MUIC_Rectangle, TAG_DONE);
     DoMethod(grp_plugs, OM_ADDMEMBER, obj_plugs);
 
+    DoMethod(app, MUIM_Notify, MUIA_Application_MenuAction, MUIV_EveryTime,
+             (ULONG)app, 2, MUIM_Application_ReturnID, MUIV_TriggerValue);
+
     DoMethod(win_login, MUIM_Notify, MUIA_Window_CloseRequest, TRUE,
-             app, 2, MUIM_Application_ReturnID, MUIV_Application_ReturnID_Quit);
+             app, 2, MUIM_Application_ReturnID, ID_CLOSE_LOGIN);
     DoMethod(win_main, MUIM_Notify, MUIA_Window_CloseRequest, TRUE,
-             app, 2, MUIM_Application_ReturnID, MUIV_Application_ReturnID_Quit);
+             app, 2, MUIM_Application_ReturnID, ID_QUIT);
     DoMethod(bt_connect, MUIM_Notify, MUIA_Pressed, FALSE,
              app, 2, MUIM_Application_ReturnID, ID_CONNECT);
     /* Return im Passwortfeld verbindet sofort. */
@@ -661,20 +903,32 @@ int main(void)
 
     set(str_host, MUIA_String_Contents, (ULONG)host);
     set(str_user, MUIA_String_Contents, (ULONG)user);
+    if (pass[0]) {
+        set(str_pass, MUIA_String_Contents, (ULONG)pass);
+    }
 
     if (!worker_start()) {
-        printf("AmiFritz: Netzwerkprozess liess sich nicht starten.\n");
+        printf("AmiFritzi: Netzwerkprozess liess sich nicht starten.\n");
         cleanup();
         return 20;
     }
     timer_open();               /* ohne Zeitgeber eben nur von Hand */
 
-    show_login("");
+    if (pass[0]) {
+        connect_with(host, user, pass); /* gespeichertes Passwort: gleich los */
+        memset(pass, 0, sizeof(pass));
+    } else {
+        show_login("");
+    }
 
-    while ((id = DoMethod(app, MUIM_Application_NewInput, &sigs))
+    while (running && (id = DoMethod(app, MUIM_Application_NewInput, &sigs))
                 != (ULONG)MUIV_Application_ReturnID_Quit) {
 
-        if (id >= ID_PLUG) {
+        if (id) {
+            dbg_log("loop: id=%lu\n", id);
+        }
+
+        if (id >= ID_PLUG && id < (ULONG)(ID_PLUG + g_nplugs)) {
             start_switch((int)(id - ID_PLUG));
         } else {
             switch (id) {
@@ -686,7 +940,34 @@ int main(void)
                     send_job(JOB_LOGOUT);
                 }
                 break;
+            case ID_ABOUT:
+                MUI_Request(app, win_main, 0, (char *)"Ueber AmiFritzi", (char *)"_OK",
+                            (char *)"\33cAmiFritzi " APP_VERSION " (" APP_DATE ")\n\n"
+                            "FRITZ!Box am Amiga\n\n"
+                            "TR-064 & Smart Home (AHA)\n"
+                            "\xa9 2026 Radi\n\n"
+                            "M68020+ / MUI 3.8");
+                break;
+            case ID_PREFS:
+                say(txt_login, "");
+                set(win_login, MUIA_Window_Open, TRUE);
+                set(win_login, MUIA_Window_ActiveObject, str_host);
+                break;
+            case ID_CLOSE_LOGIN:
+                if (g_connected) {
+                    set(win_login, MUIA_Window_Open, FALSE);
+                } else {
+                    running = FALSE;
+                }
+                break;
+            case ID_QUIT:
+                running = FALSE;
+                break;
             }
+        }
+
+        if (!running) {
+            break;
         }
 
         if (sigs) {
@@ -724,4 +1005,9 @@ int main(void)
     job_result_free(&g_job.d);
     cleanup();
     return 0;
+}
+
+int main(void)
+{
+    return run_with_stack(real_main, 65536);
 }

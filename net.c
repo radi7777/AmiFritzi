@@ -1,4 +1,4 @@
-/* AmiFritz - TCP und minimales HTTP.
+/* AmiFritzi - TCP und minimales HTTP.
  *
  * Aufbau und Zeitgrenzen stammen aus AmiHomeassist, wo sie im Alltag
  * erprobt sind: nicht blockierender connect() mit WaitSelect(), damit eine
@@ -22,9 +22,9 @@
 #include <netinet/in.h>
 #include <netdb.h>
 
-/* Die Basis ist PRO TASK. Wer spaeter die Netzwerkaufrufe in einen eigenen
- * Prozess verlegt (Phase 4), muss sie dort oeffnen - deshalb oeffnet jeder
- * Request sie selbst, statt sie einmal in main() zu holen. */
+/* Die Basis ist PRO TASK: geoeffnet wird sie beim ersten Request in dem
+ * Task, der das Netz benutzt (im GUI-Programm der Netzwerkprozess), und
+ * dort auch mit net_cleanup() wieder geschlossen. */
 struct Library *SocketBase = NULL;
 
 /* bsdsocket.library zaehlt Fehler wie BSD, NICHT wie das errno.h von
@@ -32,13 +32,22 @@ struct Library *SocketBase = NULL;
 #define NET_EWOULDBLOCK 35
 #define NET_EINPROGRESS 36
 
+/* Einmal oeffnen und offen lassen: jeder Request neu kostet am 68030
+ * spuerbar Zeit. Geschlossen wird mit net_cleanup() - im selben Task, der
+ * sie geoeffnet hat. */
 static int lib_open(void)
 {
-    SocketBase = OpenLibrary((STRPTR)"bsdsocket.library", 4);
+    if (!SocketBase) {
+        SocketBase = OpenLibrary((STRPTR)"bsdsocket.library", 4);
+    }
     return SocketBase != NULL;
 }
 
 static void lib_close(void)
+{
+}
+
+void net_cleanup(void)
 {
     if (SocketBase) {
         CloseLibrary(SocketBase);
@@ -89,6 +98,7 @@ static struct hostent *resolve_name(const char *host)
 
 static int  lib_open(void)  { return 1; }
 static void lib_close(void) { }
+void net_cleanup(void)      { }
 
 #define sock_close(s)   close(s)
 #define sock_errno()    errno
@@ -402,7 +412,7 @@ int http_request(const char *host, int port, const char *method,
     reqlen = sprintf(req,
                      "%s %s HTTP/1.0\r\n"
                      "Host: %s:%d\r\n"
-                     "User-Agent: AmiFritz\r\n"
+                     "User-Agent: AmiFritzi/0.5\r\n"
                      "Connection: close\r\n"
                      "%s",
                      method, path, host, port,

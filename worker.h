@@ -1,4 +1,4 @@
-/* AmiFritz - der Netzwerkprozess.
+/* AmiFritzi - der Netzwerkprozess.
  *
  * Ein HTTP-Aufruf kann bis zu 15 Sekunden blockieren (Zeitgrenzen in
  * net.c). Liefe er im Task der Oberflaeche, stuende so lange jedes Fenster.

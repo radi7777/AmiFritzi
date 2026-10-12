@@ -1,4 +1,4 @@
-/* AmiFritz - der Netzwerkprozess, siehe worker.h. */
+/* AmiFritzi - der Netzwerkprozess, siehe worker.h. */
 
 #include <exec/types.h>
 #include <exec/ports.h>
@@ -9,8 +9,9 @@
 #include <string.h>
 
 #include "worker.h"
+#include "net.h"
 
-#define WORKER_STACK 32768
+#define WORKER_STACK 65536
 
 /* Beim Start meldet der Prozess seinen Port ueber diese Nachricht zurueck.
  * Der Port muss IM Prozess entstehen: sein Signalbit gehoert dem Task, der
@@ -57,6 +58,8 @@ static void worker_main(void)
             if (m->d.type == JOB_QUIT) {
                 /* JOB_QUIT ist immer der letzte Auftrag - danach schickt
                  * die Oberflaeche nichts mehr, der Port ist leer. */
+                job_state_free(&st);
+                net_cleanup();
                 DeleteMsgPort(port);
                 Forbid();
                 ReplyMsg(&m->msg);
@@ -78,7 +81,7 @@ BOOL worker_start(void)
     }
 
     proc = CreateNewProcTags(NP_Entry,     (ULONG)worker_main,
-                             NP_Name,      (ULONG)"AmiFritz Netz",
+                             NP_Name,      (ULONG)"AmiFritzi Netz",
                              NP_StackSize, WORKER_STACK,
                              TAG_DONE);
     if (!proc) {

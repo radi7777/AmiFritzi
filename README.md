@@ -1,9 +1,15 @@
-# AmiFritz
+# AmiFritzi
+
+![AmiFritzi on a TF536](screenshot.png)
 
 Control an AVM FRITZ!Box from a classic Amiga: AmigaOS 3.x, 68020+, no FPU,
 any `bsdsocket.library` stack (Roadshow, AmiTCP, Miami). Talks to the box's
 official interfaces instead of scraping the web UI: the AHA HTTP interface
-for smart home, and later TR-064 (SOAP) for WLAN, DSL, and telephony.
+for smart home, and TR-064 (SOAP) for device, internet, WLAN, and home
+network information.
+
+Version 0.5. Until 0.25 the program was called AmiFritz; its saved settings
+(`ENVARC:AmiFritz.prefs`) are still read.
 
 The plan and the protocol details are in [PROJECT.md](PROJECT.md).
 
@@ -14,35 +20,42 @@ The plan and the protocol details are in [PROJECT.md](PROJECT.md).
 | 1     | TCP + HTTP over bsdsocket (`net.c`)        | done, tested against mock |
 | 2     | MD5, `login_sid.lua` login, smart plugs    | done, tested against mock |
 | 3     | TR-064: SOAP auth, service discovery, WAN IP, device info | done, tested against mock |
-| 4     | MUI GUI with a separate network process    | written, job logic tested against mock; GUI not yet compiled |
+| 4     | MUI GUI with a separate network process    | done, runs on a 68030 (TF536) with a FRITZ!Box 6850 5G |
 
-Not tested yet on real Amiga hardware or against a real box. The Amiga-only
-files (`gui.c`, `worker.c`) have so far only been syntax-checked; the first
-real build with m68k-amigaos-gcc and the MUI headers is still to come.
-
-## AmiFritz (MUI)
+## AmiFritzi (MUI)
 
 A login window asks for the box (default `fritz.box`), the user, and the
-password. With the user left empty, AmiFritz uses the user the box reports
-as last logged in. Host and user are saved to `ENV:`/`ENVARC:AmiFritz.prefs`;
-the password is never stored.
+password. With the user left empty, AmiFritzi uses the user the box reports
+as last logged in. After a successful login, host, user, and password are
+saved to `ENV:`/`ENVARC:AmiFritzi.prefs`, and the next start logs in
+straight away. **The password is stored in plain text** in that file, so
+anyone with access to the Amiga can read it. To forget it, delete
+`ENVARC:AmiFritzi.prefs`.
 
-After login, the main window shows the model, FRITZ!OS version, internet
-address, and uptime (through TR-064; shown as `-` when TR-064 is off), plus a
-table of all smart plugs with name, state, power, and an on/off button. The
-plugs are re-read every 30 seconds. When the session ID expires (after 20
-minutes idle, or after the box reboots), AmiFritz logs in again without
-asking.
+After login, the main window shows, through TR-064 (shown as `-` when TR-064
+is off):
 
-All network access runs in its own process ("AmiFritz Netz"). The GUI sends
+- model, FRITZ!OS version, and uptime
+- connection (DSL status, or mobile technology and signal on 5G/LTE boxes),
+  internet address, and line speed
+- 2.4 GHz WLAN with SSID and channel
+- number of devices in the home network and how many are online
+
+plus a table of all smart plugs with name, state, power, and an on/off
+button. The plugs are re-read every 30 seconds. When the session ID expires
+(after 20 minutes idle, or after the box reboots), AmiFritzi logs in again
+without asking. The menu has About, Settings (back to the login window), and
+Quit.
+
+All network access runs in its own process ("AmiFritzi Netz"). The GUI sends
 it jobs as Exec messages and gets the results back in the same message, so
 windows stay responsive while the box answers, for up to the 15-second
 timeout. Buttons are disabled while a job runs. See `worker.h` and `jobs.h`.
 
-## AmiFritzCLI
+## AmiFritziCLI
 
 ```
-AmiFritzCLI [-h host] [-P port] [-T tr064port] [-u user] [-p pass] <command> [arg...]
+AmiFritziCLI [-h host] [-P port] [-T tr064port] [-u user] [-p pass] <command> [arg...]
   get <path>          raw HTTP GET, print status line and headers (phase 1)
   login               log in, print SID, log out
   list                list smart plugs: AIN, state, power, name
@@ -59,8 +72,10 @@ Settings > "Allow access for applications". The user needs the right
 
 The host defaults to `fritz.box`. Without `-u`, the CLI uses the user the box
 reports as last logged in (FRITZ!OS 7.24+ always needs a username). The
-password may also come from the environment variable `FRITZPASS`. Put the AIN
-in quotes, because it contains a space: `AmiFritzCLI on "08761 0000434"`.
+password may also come from the environment variable `FRITZPASS`; without
+`-p` and `FRITZPASS`, host, user, and password are taken from the GUI's
+`AmiFritzi.prefs`. Put the AIN
+in quotes, because it contains a space: `AmiFritziCLI on "08761 0000434"`.
 
 ## Building
 
@@ -69,7 +84,9 @@ For the Amiga, cross-compile with
 the same profile as AmiHomeassist:
 
 ```sh
-make                              # AmiFritz (MUI) + AmiFritzCLI
+make                              # AmiFritzi (MUI) + AmiFritziCLI
+make DEBUG=1                      # with a diagnostic log in RAM:AmiFritzi.log
+make check-fpu                    # verify the binaries contain no FPU code
 make TOOLCHAIN=/path/to/m68k-amigaos-gcc
 ```
 
@@ -95,7 +112,7 @@ The network code builds unchanged on Linux and macOS with BSD sockets.
   including the silent re-login after the SID expires
 
 To try the mock by hand, run `python3 tests/mockbox.py 8080 49000`, then
-`build/host/AmiFritzCLI -h 127.0.0.1 -P 8080 -p gurkensalat list` or `info`.
+`build/host/AmiFritziCLI -h 127.0.0.1 -P 8080 -p gurkensalat list` or `info`.
 
 ## Notes
 
@@ -112,8 +129,15 @@ To try the mock by hand, run `python3 tests/mockbox.py 8080 49000`, then
 - HTTP/1.0 with `Connection: close` means the box never answers with chunked
   encoding. The reader stops at `Content-Length` or when the connection
   closes, whichever comes first.
-- `bsdsocket.library` is opened per request, because the library base is
-  per task. Only the network process ever opens it.
+- `bsdsocket.library` is opened on the first request by the task that uses
+  the network, because the library base is per task, and closed again with
+  `net_cleanup()` when that task ends. In the GUI program only the network
+  process ever opens it.
+- The number of online devices comes from the host list the box offers as
+  one file (`X_AVM-DE_GetHostListPath`), not from one SOAP call per device.
+- `make push` copies the binaries to an Amiga running amiagent. Its host,
+  token, and amimcp path go in `push_local.py` (not in git) or in the
+  environment variables `AMIGA_HOSTS`, `AMIGA_TOKEN`, and `AMIMCP_PATH`.
 - Memory that crosses between the GUI and the network process comes from
   `AllocVec()` (`mem.c`), not libnix `malloc()`, because the libnix
   allocator has no locking.

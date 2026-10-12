@@ -3,7 +3,7 @@
 
 Kann login_sid.lua (MD5-Challenge, UTF-16LE), die AHA-Befehle fuer
 Steckdosen und TR-064 mit AVMs SOAP-Auth (DeviceInfo, WANPPPConnection,
-WANIPConnection). Benutzer 'amiga', Passwort 'gurkensalat'. Absichtlich
+WANIPConnection, Hosts samt Host-Liste). Benutzer 'amiga', Passwort 'gurkensalat'. Absichtlich
 streng: falsche SID -> 403, jede TR-064-Nonce gilt genau einmal, und die
 Aufforderung zur Anmeldung kommt wie bei manchen Firmwares als Fault 503.
 
@@ -32,7 +32,12 @@ SERVICES = {
         "/upnp/control/wanpppconn1",
     "urn:dslforum-org:service:WANIPConnection:1":
         "/upnp/control/wanipconnection1",
+    "urn:dslforum-org:service:Hosts:1": "/upnp/control/hosts",
 }
+
+HOSTLIST_PATH = "/devicehostlist.lua?sid=b0b0b0b0b0b0b0b0"
+# Drei Geraete, zwei davon online.
+HOSTS = [("amiga1200", 1), ("drucker", 0), ("tf536", 1)]
 
 
 class Box:
@@ -124,7 +129,22 @@ def action_result(service, action):
         ip = "0.0.0.0" if "PPP" in service else "203.0.113.7"
         return (u + f"<NewExternalIPAddress>{ip}</NewExternalIPAddress>"
                 f"</u:{action}Response>")
+    if action == "GetHostNumberOfEntries":
+        return (u + f"<NewHostNumberOfEntries>{len(HOSTS)}"
+                f"</NewHostNumberOfEntries></u:{action}Response>")
+    if action == "X_AVM-DE_GetHostListPath":
+        return (u + "<NewX_AVM-DE_HostListPath>"
+                + HOSTLIST_PATH.replace("&", "&amp;")
+                + f"</NewX_AVM-DE_HostListPath></u:{action}Response>")
     return None
+
+
+def hostlist():
+    items = "".join(
+        f"<Item><Index>{i + 1}</Index><HostName>{n}</HostName>"
+        f"<Active>{a}</Active></Item>"
+        for i, (n, a) in enumerate(HOSTS))
+    return f'<?xml version="1.0"?><List>{items}</List>'
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -152,6 +172,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.aha(q)
         if u.path == "/tr64desc.xml":
             return self.reply(200, tr64desc(), "text/xml")
+        if self.path == HOSTLIST_PATH:
+            return self.reply(200, hostlist(), "text/xml")
         if u.path == "/__test/expire":      # SIDs verfallen lassen
             with BOX.lock:
                 BOX.sids.clear()

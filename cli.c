@@ -1,6 +1,6 @@
-/* AmiFritzCLI - Shell-Werkzeug fuer Phase 1 und 2, noch ohne MUI.
+/* AmiFritziCLI - Shell-Werkzeug fuer Phase 1 und 2, noch ohne MUI.
  *
- *   AmiFritzCLI [-h host] [-P port] [-T port] [-u user] [-p pass]
+ *   AmiFritziCLI [-h host] [-P port] [-T port] [-u user] [-p pass]
  *               <kommando> [arg...]
  *
  *   -P  Port fuer login_sid.lua/AHA (80), -T Port fuer TR-064 (49000)
@@ -25,11 +25,11 @@
 #include "tr064.h"
 #include "mem.h"
 
-static const char VERSTAG[] = "\0$VER: AmiFritzCLI 0.1 (28.09.2026)";
+static const char VERSTAG[] __attribute__((used)) = "$VER: AmiFritziCLI 0.5 (12.10.2026)";
 
 static void usage(void)
 {
-    printf("Usage: AmiFritzCLI [-h host] [-P port] [-T tr064port] "
+    printf("Usage: AmiFritziCLI [-h host] [-P port] [-T tr064port] "
            "[-u user] [-p pass] <command> [arg...]\n"
            "  get <path>          raw HTTP GET, print status and headers\n"
            "  login               log in, print SID, log out\n"
@@ -181,7 +181,7 @@ static int cmd_tr064(struct Tr064 *t, const char *cmd, const char *a1,
     }
 }
 
-int main(int argc, char **argv)
+static int cli_main(int argc, char **argv)
 {
     struct FritzSession s;
     const char *host = "fritz.box";
@@ -222,7 +222,33 @@ int main(int argc, char **argv)
         return 5;
     }
     if (!pass) {
-        pass = "";
+        static char phost[64], puser[64], ppass[128];
+        /* Dieselben Einstellungen wie die MUI-Oberflaeche (bis 0.25 unter
+         * dem alten Namen AmiFritz). */
+        FILE *f = fopen("ENV:AmiFritzi.prefs", "r");
+        if (!f) f = fopen("ENVARC:AmiFritzi.prefs", "r");
+        if (!f) f = fopen("ENVARC:AmiFritz.prefs", "r");
+        if (f) {
+            char line[200];
+            while (fgets(line, sizeof(line), f)) {
+                char *nl = strpbrk(line, "\r\n");
+                if (nl) *nl = '\0';
+                if (strncmp(line, "HOST=", 5) == 0 && line[5] && strcmp(host, "fritz.box") == 0) {
+                    strncpy(phost, line + 5, sizeof(phost) - 1);
+                    host = phost;
+                } else if (strncmp(line, "USER=", 5) == 0 && line[5] && !*user) {
+                    strncpy(puser, line + 5, sizeof(puser) - 1);
+                    user = puser;
+                } else if (strncmp(line, "PASS=", 5) == 0 && line[5]) {
+                    strncpy(ppass, line + 5, sizeof(ppass) - 1);
+                    pass = ppass;
+                }
+            }
+            fclose(f);
+        }
+        if (!pass) {
+            pass = "";
+        }
     }
 
     if (strcmp(cmd, "get") == 0) {
@@ -277,5 +303,13 @@ int main(int argc, char **argv)
     /* Jede SID belegt auf der Box einen Platz, bis sie nach 20 Minuten
      * verfaellt - also ordentlich abmelden. */
     fb_logout(&s);
+    return ret;
+}
+
+int main(int argc, char **argv)
+{
+    int ret = cli_main(argc, argv);
+
+    net_cleanup();
     return ret;
 }

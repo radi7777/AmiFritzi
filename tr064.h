@@ -1,4 +1,4 @@
-/* AmiFritz - TR-064: SOAP ueber HTTP an Port 49000.
+/* AmiFritzi - TR-064: SOAP ueber HTTP an Port 49000.
  *
  * Anmeldung nach AVMs "SOAP-Auth" im SOAP-Header, NICHT HTTP-Digest:
  *

@@ -1,4 +1,4 @@
-/* AmiFritz - MD5 nach RFC 1321. Keine Abhaengigkeiten, endian-neutral. */
+/* AmiFritzi - MD5 nach RFC 1321. Keine Abhaengigkeiten, endian-neutral. */
 
 #ifndef FB_MD5_H
 #define FB_MD5_H
