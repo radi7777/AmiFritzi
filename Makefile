@@ -73,6 +73,25 @@ test: build/host/test_crypto build/host/AmiFritziCLI build/host/test_jobs
 	python3 tests/test_cli.py build/host/AmiFritziCLI
 	python3 tests/test_jobs.py build/host/test_jobs
 
+# Aminet-Archiv: build/AmiFritzi.lha + build/AmiFritzi.readme
+# (Schublade AmiFritzi mit Icon, darin Programme, ReadMe und Lizenz)
+VERSION := $(shell sed -n 's/^\#define APP_VERSION *"\(.*\)"/\1/p' gui.c)
+LHA      = $(TOOLCHAIN)/bin/lha
+DIST     = build/dist/AmiFritzi
+
+dist: AmiFritzi AmiFritziCLI check-fpu
+	@grep -q "^Version: *$(VERSION)$$" aminet/AmiFritzi.readme || \
+	    { echo "aminet/AmiFritzi.readme: Version passt nicht zu $(VERSION)"; exit 1; }
+	rm -rf build/dist build/AmiFritzi.lha build/AmiFritzi.readme
+	mkdir -p $(DIST)
+	cp AmiFritzi AmiFritzi.info AmiFritziCLI LICENSE $(DIST)/
+	cp aminet/AmiFritzi.readme $(DIST)/ReadMe
+	cp aminet/ReadMe.info $(DIST)/ReadMe.info
+	cp Drawer.info build/dist/AmiFritzi.info
+	cd build/dist && $(LHA) aq ../AmiFritzi.lha AmiFritzi AmiFritzi.info
+	cp aminet/AmiFritzi.readme build/AmiFritzi.readme
+	@echo "-> build/AmiFritzi.lha + build/AmiFritzi.readme ($(VERSION))"
+
 check-fpu: AmiFritzi AmiFritziCLI
 	@python3 checkfpu.py $(OBJDUMP) AmiFritzi AmiFritziCLI
 
@@ -87,4 +106,4 @@ push-work: AmiFritzi AmiFritziCLI check-fpu
 clean:
 	rm -rf *.o *.d build AmiFritzi AmiFritziCLI
 
-.PHONY: all test check-fpu push push-work clean
+.PHONY: all test check-fpu push push-work dist clean

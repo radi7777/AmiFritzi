@@ -1,0 +1,154 @@
+Short:        FRITZ!Box status and smart plugs (MUI)
+Kurz:         FRITZ!Box-Status und Steckdosen (MUI)
+Author:       radi777
+Uploader:     thomas.radeck gmail com (radi777, see note below)
+Type:         comm/tcp
+Version:      0.5
+Architecture: m68k-amigaos >= 3.0.0
+Requires:     MUI 3.8, a TCP/IP stack (Roadshow, AmiTCP, Miami)
+Distribution: Aminet
+
+
+AmiFritzi - your FRITZ!Box on the Amiga
+=======================================
+
+AmiFritzi shows what your AVM FRITZ!Box is doing and switches its
+smart plugs, right from the Workbench. It talks to the box's official
+interfaces (TR-064 and the AHA smart home interface) instead of
+scraping the web pages, so it keeps working across FRITZ!OS updates.
+
+The user interface is in German.
+
+FEATURES
+
+  - model, FRITZ!OS version and uptime
+  - internet connection: DSL status, or mobile technology and signal
+    strength on 5G/LTE boxes; internet address and line speed
+  - 2.4 GHz WLAN with name and channel
+  - devices in the home network and how many of them are online
+  - FRITZ!DECT smart plugs: name, state, current power, on/off button;
+    re-read every 30 seconds
+  - logs in again by itself when the session expires or the box
+    restarts
+  - all network traffic runs in its own process, so the window never
+    freezes while the box answers
+  - AmiFritziCLI: the same functions as a Shell command, e.g.
+      AmiFritziCLI list
+      AmiFritziCLI on "08761 0000434"
+      AmiFritziCLI info
+
+REQUIREMENTS
+
+  68020 or better (no FPU needed)
+  MUI 3.8 or newer
+  a TCP/IP stack with bsdsocket.library
+  a FRITZ!Box with a user account. Most newer boxes need a user name
+    (FRITZ!OS 7.24 and later).
+
+Tested on AmigaOS 3.2.2 and 3.2.3 on a TF536 (68030) and a PiStorm
+(68040), against a FRITZ!Box 6850 5G with FRITZ!OS 8.25. It should
+also run on 3.0 and 3.1, but that is untested.
+
+SETTING UP THE FRITZ!BOX
+
+  1. Home Network > Network > Network Settings: switch on "Allow
+     access for applications" (TR-064). Without it AmiFritzi still
+     logs in and switches plugs, but shows "-" for the box data.
+  2. System > FRITZ!Box Users: the user needs the rights "FRITZ!Box
+     settings" and "Smart Home".
+
+INSTALLATION AND USE
+
+Copy the AmiFritzi drawer anywhere you like and double-click
+AmiFritzi. Enter the box (fritz.box or its IP address, e.g.
+192.168.178.1), your user name and password, and click "Speichern &
+Verbinden". With the user name left empty, AmiFritzi uses the user who
+last logged in to the box.
+
+After a successful login AmiFritzi saves box, user and password in
+ENVARC:AmiFritzi.prefs and logs in by itself on the next start. The
+password is stored in plain text, so anyone with access to your Amiga
+can read it. Delete ENVARC:AmiFritzi.prefs to make AmiFritzi forget
+it. AmiFritziCLI uses the same file when you give no -p option.
+
+SOURCE AND LICENCE
+
+MIT licence, see LICENSE in the drawer. The source code is not part of
+this archive; it is on GitHub: https://github.com/radi7777/AmiFritzi
+muistubs.c is from amimcp and under the Apache License 2.0.
+
+FRITZ!Box and FRITZ!DECT are trademarks of AVM GmbH. AmiFritzi is not
+made by or connected to AVM.
+
+This program is vibe coded. I described what it should do, an AI wrote
+the code, and I tested and decided what stayed in. The full source is
+on GitHub, so you can judge for yourself.
+
+Note on the uploader address: it is written without the @ and the dot
+to keep address harvesters out. Put an @ before "gmail" and a dot in
+front of "com" and you have it.
+
+
+AmiFritzi - die FRITZ!Box am Amiga
+==================================
+
+AmiFritzi zeigt, was deine FRITZ!Box gerade tut, und schaltet ihre
+Steckdosen, direkt von der Workbench aus. Es spricht mit den
+offiziellen Schnittstellen der Box (TR-064 und die AHA-Smart-Home-
+Schnittstelle), statt die Webseiten auszulesen, und laeuft deshalb
+auch nach FRITZ!OS-Updates weiter.
+
+FUNKTIONEN
+
+  - Modell, FRITZ!OS-Version und Laufzeit
+  - Internetverbindung: DSL-Status oder bei 5G/LTE-Boxen Technik und
+    Signalstaerke; Internet-Adresse und Datenrate
+  - WLAN 2,4 GHz mit Name und Kanal
+  - Geraete im Heimnetz und wie viele davon online sind
+  - FRITZ!DECT-Steckdosen: Name, Zustand, aktuelle Leistung, Knopf zum
+    Ein- und Ausschalten; alle 30 Sekunden neu gelesen
+  - meldet sich von selbst neu an, wenn die Sitzung abgelaufen ist
+    oder die Box neu gestartet hat
+  - das Netz laeuft in einem eigenen Prozess, das Fenster friert nie
+    ein, waehrend die Box antwortet
+  - AmiFritziCLI: dieselben Funktionen als Shell-Befehl
+
+VORAUSSETZUNGEN
+
+  68020 oder besser (keine FPU noetig), MUI 3.8 oder neuer, ein
+  TCP/IP-Stack mit bsdsocket.library und ein Benutzerkonto auf der
+  FRITZ!Box. Getestet unter AmigaOS 3.2.2 und 3.2.3 mit TF536 (68030)
+  und PiStorm (68040) an einer FRITZ!Box 6850 5G mit FRITZ!OS 8.25.
+
+FRITZ!BOX EINRICHTEN
+
+  1. Heimnetz > Netzwerk > Netzwerkeinstellungen: "Zugriff fuer
+     Anwendungen zulassen" (TR-064) einschalten. Ohne das meldet sich
+     AmiFritzi trotzdem an und schaltet Steckdosen, zeigt bei den
+     Box-Daten aber nur "-".
+  2. System > FRITZ!Box-Benutzer: der Benutzer braucht die Rechte
+     "FRITZ!Box Einstellungen" und "Smart Home".
+
+INSTALLATION UND BEDIENUNG
+
+Die Schublade AmiFritzi irgendwohin kopieren und AmiFritzi
+doppelklicken. Box (fritz.box oder die IP-Adresse, z. B.
+192.168.178.1), Benutzer und Passwort eingeben und "Speichern &
+Verbinden" klicken. Bleibt der Benutzer leer, nimmt AmiFritzi den
+zuletzt an der Box angemeldeten.
+
+Nach einer erfolgreichen Anmeldung speichert AmiFritzi Box, Benutzer
+und Passwort in ENVARC:AmiFritzi.prefs und meldet sich beim naechsten
+Start von selbst an. Das Passwort steht dort im Klartext - wer an
+deinen Amiga kommt, kann es lesen. ENVARC:AmiFritzi.prefs loeschen,
+dann vergisst AmiFritzi es. AmiFritziCLI liest dieselbe Datei, wenn
+keine Option -p angegeben ist.
+
+QUELLTEXT UND LIZENZ
+
+MIT-Lizenz, siehe LICENSE in der Schublade. Der Quelltext liegt auf
+GitHub: https://github.com/radi7777/AmiFritzi
+
+Dieses Programm ist "vibe coded": Ich habe beschrieben, was es tun
+soll, eine KI hat den Code geschrieben, und ich habe getestet und
+entschieden, was bleibt.

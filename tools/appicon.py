@@ -9,7 +9,10 @@ Zwei Fassungen in einer Datei, wie auf dem Amiga ueblich:
   GlowIcon   eigene Palette (OS 3.5+, 3.2, PeterK), Rand durchsichtig,
              angewaehlt mit Lichtkranz
 
-    python3 tools/appicon.py      -> AmiFritzi.info, build/icon_preview.png
+Dasselbe Bild dient als Schubladen-Icon fuer das Aminet-Archiv (Drawer.info).
+
+    python3 tools/appicon.py      -> AmiFritzi.info, Drawer.info,
+                                     build/icon_preview.png
 """
 
 import os
@@ -17,6 +20,7 @@ import struct
 import zlib
 
 OUT = "AmiFritzi.info"
+OUT_DRAWER = "Drawer.info"
 PREVIEW = "build/icon_preview.png"
 W, H = 48, 48
 EDGE = 2                        # durchsichtiger Rand (Platz fuer den Lichtkranz)
@@ -172,19 +176,25 @@ def image_header(depth):
     return struct.pack(">hhhhhIBBI", 0, 0, W, H, depth, 1, 0x03, 0x00, 0)
 
 
-def build_info(classic, glow):
+def build_info(classic, glow, drawer=False):
     gadget = struct.pack(">IhhhhHHH", 0, 0, 0, W, H, 0x0006, 0x0001, 0x0001)
     gadget += struct.pack(">IIIIIHI", 1, 1, 0, 0, 0, 0, 0)
     gadget = gadget[:44]
 
     do = struct.pack(">HH", 0xE310, 1) + gadget
-    do += bytes([3, 0])                       # WBTOOL
+    do += bytes([2 if drawer else 3, 0])      # WBDRAWER / WBTOOL
     do += struct.pack(">II", 0, 0)
     do += struct.pack(">ii", NOPOS, NOPOS)
-    do += struct.pack(">III", 0, 0, 0)
+    do += struct.pack(">III", 1 if drawer else 0, 0, 0)  # DrawerData
     assert len(do) == 78, len(do)
 
     out = bytearray(do)
+    if drawer:
+        # DrawerData (56 Bytes) steht VOR den Bildern: Fenster 320x130 bei
+        # 60,50, Mindest-/Hoechstgroesse 90x40 .. 640x200.
+        nw = struct.pack(">hhhhBBIIIIIIhhhhH", 60, 50, 320, 130, 0xFF, 0xFF,
+                         0, 0, 0, 0, 0, 0, 90, 40, 640, 200, 1)
+        out += (nw[:48] + struct.pack(">ii", 0, 0) + b"\0" * 56)[:56]
     out += image_header(2) + planar(classic, 2)
     # Angewaehlt (klassisch): Farben vertauscht, wie Workbench es sonst macht
     out += image_header(2) + planar([[3 - v for v in row] for row in classic], 2)
@@ -210,6 +220,8 @@ def main():
     classic, glow = grids()
     with open(OUT, "wb") as f:
         f.write(build_info(classic, glow))
+    with open(OUT_DRAWER, "wb") as f:
+        f.write(build_info(classic, glow, drawer=True))
 
     # Vorschau: klassisch | GlowIcon | angewaehlt, je vierfach
     z, gap = 4, 10
@@ -225,7 +237,8 @@ def main():
                         rows[y * z + dy][(n * W + x) * z + dx + n * gap] = pl[g[y][x]]
     os.makedirs(os.path.dirname(PREVIEW), exist_ok=True)
     write_png(PREVIEW, rows)
-    print("%s geschrieben (%dx%d), Vorschau %s" % (OUT, W, H, PREVIEW))
+    print("%s und %s geschrieben (%dx%d), Vorschau %s"
+          % (OUT, OUT_DRAWER, W, H, PREVIEW))
 
 
 if __name__ == "__main__":

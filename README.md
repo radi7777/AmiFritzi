@@ -87,6 +87,7 @@ the same profile as AmiHomeassist:
 make                              # AmiFritzi (MUI) + AmiFritziCLI
 make DEBUG=1                      # with a diagnostic log in RAM:AmiFritzi.log
 make check-fpu                    # verify the binaries contain no FPU code
+make dist                         # Aminet archive build/AmiFritzi.lha + .readme
 make TOOLCHAIN=/path/to/m68k-amigaos-gcc
 ```
 
@@ -141,3 +142,12 @@ To try the mock by hand, run `python3 tests/mockbox.py 8080 49000`, then
 - Memory that crosses between the GUI and the network process comes from
   `AllocVec()` (`mem.c`), not libnix `malloc()`, because the libnix
   allocator has no locking.
+
+## License
+
+MIT License, see [LICENSE](LICENSE). `muistubs.c` comes from amimcp and is
+under the Apache License 2.0 ([LICENSE-Apache-2.0](LICENSE-Apache-2.0)).
+The MUI developer headers are not part of this repository.
+
+FRITZ!Box and FRITZ!DECT are trademarks of AVM GmbH. AmiFritzi is not made
+by or connected to AVM.
